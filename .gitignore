@@ -1,0 +1,8 @@
+# colcon
+build/
+install/
+log/
+
+# local
+**/.env
+.vscode/settings.json

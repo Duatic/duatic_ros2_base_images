@@ -1,0 +1,49 @@
+#!/bin/bash
+# duatic-exec — the one way anything enters a running dev container as the host user.
+#
+# Two callers, both land here as root and both end up at the same setpriv call:
+#   - docker exec:    `docker exec -it <container> duatic-exec bash` — root by default
+#                     (the image sets no USER), identity comes from HOST_UID/HOST_GID/
+#                     HOST_USER, the same -e vars the entrypoint received at `docker run`
+#                     (docker exec inherits a container's declared env, so these are still
+#                     visible here).
+#   - duatic-shell:   `sudo -n duatic-exec /bin/bash "$@"` — sudo elevates to root and sets
+#                     SUDO_UID/SUDO_GID/SUDO_USER for whoever called it, which is who we
+#                     want to drop back to.
+#
+# Either way: sync device-owning groups (see duatic-sync-groups — needed every time, not
+# just once at container creation, so a gamepad plugged in after start works in the next
+# shell), then setpriv into the target user with ambient CAP_NET_RAW. A plain
+# `docker exec -u <user>` cannot do this: it loses ambient capabilities entirely, and a
+# fresh exec session does not inherit them from PID 1 either — this has to run every time.
+set -e
+
+TARGET_UID="${SUDO_UID:-${HOST_UID:-}}"
+TARGET_GID="${SUDO_GID:-${HOST_GID:-${TARGET_UID:-}}}"
+TARGET_USER="${SUDO_USER:-${HOST_USER:-developer}}"
+
+if [ "$(id -u)" != "0" ]; then
+    exec "$@" # already unprivileged (e.g. rootless/keep-id) — nothing to drop
+fi
+
+if [ -z "$TARGET_UID" ]; then
+    exec "$@" # root container, no host identity configured — run as-is
+fi
+
+# The entrypoint creates the passwd entry once at container start; a `docker run -d` can
+# return a moment before it lands, so an exec that races it gets a beat to catch up.
+for _ in $(seq 1 50); do
+    id "$TARGET_USER" >/dev/null 2>&1 && break
+    sleep 0.1
+done
+
+HOST_USER="$TARGET_USER" duatic-sync-groups
+
+_cap_args=""
+if capsh --has-b=cap_net_raw 2>/dev/null; then
+    _cap_args="--inh-caps=+net_raw --ambient-caps=+net_raw"
+else
+    echo "duatic-exec: CAP_NET_RAW not in the bounding set; EtherCAT will need root." >&2
+fi
+# shellcheck disable=SC2086  # deliberate word splitting of the optional cap flags
+exec setpriv --reuid="$TARGET_UID" --regid="$TARGET_GID" --init-groups $_cap_args "$@"

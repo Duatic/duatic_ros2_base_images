@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Digest bumps of the ros:<distro>-ros-base images pinned in the Dockerfile
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

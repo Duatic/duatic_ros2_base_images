@@ -1,0 +1,7 @@
+# Dev image only. All pip-installed python deps live in the global venv at /opt/duatic/venv,
+# activated image-wide via ENV PATH/PYTHONPATH (see docker/Dockerfile's base stage). sudo
+# deliberately ignores the caller's environment (env_reset) and rebuilds PATH from secure_path,
+# so without this drop-in `sudo pip3 install X` would silently target the SYSTEM python while
+# the unprivileged `pip3 install X` targets the venv — two different places, same command.
+Defaults secure_path="/opt/duatic/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults env_keep += "VIRTUAL_ENV PYTHONPATH"

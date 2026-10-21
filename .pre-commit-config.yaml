@@ -1,0 +1,44 @@
+repos:
+  # Standard hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=3500']
+      - id: check-ast
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-xml
+      - id: check-yaml
+      - id: debug-statements
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: fix-byte-order-marker  # Forbid UTF-8 byte-order markers
+      - id: trailing-whitespace
+
+  # Shell script linting
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: ["--severity=warning"]
+
+  # Dockerfile linting
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.1-beta
+    hooks:
+      - id: hadolint-docker
+        args: ['--failure-threshold', 'error']
+
+  # Spellcheck in comments and docs
+  # skipping of *.svg files is not working...
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        # SOEM is the EtherCAT master stack (Simple Open EtherCAT Master); codespell's
+        # dictionary otherwise "corrects" it to "some" — with --write-changes, silently.
+        args: ['--write-changes', '--ignore-words-list=soem']
+        exclude: \.(svg|pyc)$

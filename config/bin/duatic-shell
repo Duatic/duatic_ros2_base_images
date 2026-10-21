@@ -1,0 +1,25 @@
+#!/bin/bash
+# duatic-shell — the container's $SHELL, and the created user's login shell. Whatever
+# starts an interactive shell WITHOUT going through `docker exec duatic-exec` — a VSCode
+# devcontainer terminal, Remote-SSH, a plain `docker exec -u <user>` — lands here instead
+# of a bare bash.
+#
+# Why this needs to exist at all: by the time this runs, we ARE the target user (whoever
+# started us already did the uid switch), but a fresh exec session never carries ambient
+# CAP_NET_RAW — it isn't inherited from PID 1, and we can't setpriv further privilege into
+# ourselves without first going through root. sudo (NOPASSWD, set up by the entrypoint) is
+# what gets us there and back: it elevates to root, which re-invokes duatic-exec — the same
+# privilege-drop used by a plain `docker exec`, just reached from the other direction, via
+# SUDO_UID/SUDO_GID/SUDO_USER (which sudo sets for us regardless of env_reset).
+#
+# /bin/bash is prefixed explicitly: our own "$@" are BASH's flags (-i, -c '...', --rcfile),
+# not a command line, so duatic-exec needs the program name put back in front of them.
+#
+# Falls back to a plain shell if sudo isn't available/permitted — e.g. a `docker run -u`
+# that bypassed the entrypoint entirely and has no sudoers drop-in. Better an unprivileged
+# shell than none.
+if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    exec sudo -n duatic-exec /bin/bash "$@"
+else
+    exec /bin/bash "$@"
+fi

@@ -1,0 +1,36 @@
+#!/bin/bash
+# duatic-sync-groups — make HOST_USER a member of the group that owns every device node
+# under /dev (recursively — .../input, .../dri, .../snd, ...), plus any extra host GIDs
+# passed in DUATIC_EXTRA_GIDS (comma-separated). Numeric, name-free: it works whether or
+# not the container happens to have a group called "input" — it doesn't, in a stock ROS
+# image, which is exactly why gamepads were unreachable before this existed.
+#
+# Must run as root, and must run BEFORE any `setpriv --init-groups` that is meant to pick
+# up the result: --init-groups calls initgroups(3), which REPLACES the calling process's
+# supplementary groups with exactly what NSS knows about the target user. A bare
+# `docker run --group-add <gid>` does NOT survive that replacement unless the user is ALSO
+# a named member of a real /etc/group entry for that gid — so this script's job is to make
+# sure that entry exists and that HOST_USER is in it, every time, before we drop privilege.
+#
+# Idempotent and cheap (a few hundred /dev entries at most) — safe to call on every shell
+# entry (dev_entrypoint.sh, duatic-exec), which is what makes a gamepad plugged in after
+# container start work in the NEXT shell, without recreating the container.
+set -u
+
+HOST_USER="${HOST_USER:-developer}"
+DUATIC_EXTRA_GIDS="${DUATIC_EXTRA_GIDS:-}"
+id "$HOST_USER" >/dev/null 2>&1 || exit 0 # user not created yet — nothing to sync
+
+# find's %G is the raw numeric GID; %g resolves to a NAME where one already exists in this
+# container (opposite of stat's convention, where %g is the number — do not "fix" this the
+# other way). Getting this backwards is exactly how a --privileged container's root-owned
+# device nodes (/dev/null, /dev/nvme0, ...) end up reported as the literal string "root"
+# instead of "0", which the gid=0 skip below never matches, so every one of them silently
+# adds HOST_USER to the root group.
+for gid in $(find /dev \( -type c -o -type b \) -printf '%G\n' 2>/dev/null | sort -un) \
+    ${DUATIC_EXTRA_GIDS//,/ }; do
+    [ -z "$gid" ] && continue
+    [ "$gid" = "0" ] && continue
+    getent group "$gid" >/dev/null 2>&1 || groupadd -g "$gid" "hostgid-$gid" 2>/dev/null || true
+    usermod -aG "$gid" "$HOST_USER" 2>/dev/null || true
+done

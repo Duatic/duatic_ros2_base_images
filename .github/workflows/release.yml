@@ -1,0 +1,50 @@
+name: Release
+
+# Dispatch opens (or refreshes) the `release: X.Y.Z` pull request: version bump in version.txt
+# and the CHANGELOG.md section, derived from conventional commits since the last tag.
+# Merging it tags vX.Y.Z, publishes the GitHub Release and pushes the versioned images.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner label(s) for the release job'
+        type: string
+        default: 'ubuntu-latest'
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-release: ${{ github.event_name == 'workflow_dispatch' }}
+          skip-github-pull-request: ${{ github.event_name == 'push' }}
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        ros_distro: [jazzy, kilted, lyrical, rolling]
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      ros_distro: ${{ matrix.ros_distro }}
+      push: true
+      version: ${{ needs.release-please.outputs.version }}

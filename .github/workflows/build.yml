@@ -1,0 +1,131 @@
+name: Build images
+
+# Builds base + dev for one distro on native amd64 and arm64 runners. With `push`, each arch is
+# pushed by digest and the merge job assembles the multi-arch tags.
+
+on:
+  workflow_call:
+    inputs:
+      ros_distro:
+        type: string
+        required: true
+      push:
+        type: boolean
+        default: false
+      version:
+        description: 'X.Y.Z; with push, also tags <distro>-X.Y.Z and <distro>-X.Y'
+        type: string
+        default: ''
+      runner:
+        description: 'Runner label(s) for the amd64 build and the merge job'
+        type: string
+        default: 'ubuntu-latest'
+      runner_arm64:
+        description: 'Runner label(s) for the arm64 build'
+        type: string
+        default: 'ubuntu-24.04-arm'
+
+env:
+  REGISTRY_NS: ghcr.io/duatic
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && inputs.runner_arm64 || inputs.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+
+      - if: inputs.push
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build base
+        id: base
+        uses: docker/build-push-action@v6
+        with:
+          file: docker/Dockerfile
+          target: base
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            ROS_DISTRO=${{ inputs.ros_distro }}
+            CACHEBUST=${{ github.run_id }}
+          outputs: ${{ inputs.push && format('type=image,name={0}/ros2-base,push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_NS) || 'type=cacheonly' }}
+          cache-from: type=gha,scope=${{ inputs.ros_distro }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.ros_distro }}-${{ matrix.arch }}
+
+      - name: Build dev
+        id: dev
+        uses: docker/build-push-action@v6
+        with:
+          file: docker/Dockerfile
+          target: dev
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            ROS_DISTRO=${{ inputs.ros_distro }}
+            CACHEBUST=${{ github.run_id }}
+            IMAGE_VERSION=${{ inputs.version }}
+          outputs: ${{ inputs.push && format('type=image,name={0}/ros2-dev,push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_NS) || 'type=cacheonly' }}
+          cache-from: type=gha,scope=${{ inputs.ros_distro }}-${{ matrix.arch }}
+
+      - name: Record digests
+        if: inputs.push
+        env:
+          BASE_DIGEST: ${{ steps.base.outputs.digest }}
+          DEV_DIGEST: ${{ steps.dev.outputs.digest }}
+        run: |
+          mkdir -p digests/base digests/dev
+          touch "digests/base/${BASE_DIGEST#sha256:}" "digests/dev/${DEV_DIGEST#sha256:}"
+
+      - if: inputs.push
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ inputs.ros_distro }}-${{ matrix.arch }}
+          path: digests/
+          retention-days: 1
+
+  merge:
+    if: inputs.push
+    needs: build
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-${{ inputs.ros_distro }}-*
+          path: digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch tags
+        env:
+          DISTRO: ${{ inputs.ros_distro }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          for target in base dev; do
+            repo="${REGISTRY_NS}/ros2-${target}"
+            tags=(-t "${repo}:${DISTRO}")
+            if [ -n "$VERSION" ]; then
+              tags+=(-t "${repo}:${DISTRO}-${VERSION}" -t "${repo}:${DISTRO}-${VERSION%.*}")
+            fi
+            sources=()
+            for d in digests/${target}/*; do sources+=("${repo}@sha256:$(basename "$d")"); done
+            docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+            docker buildx imagetools inspect "${repo}:${DISTRO}"
+          done

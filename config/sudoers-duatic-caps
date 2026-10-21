@@ -1,0 +1,6 @@
+# Dev image only. duatic-shell (the container's $SHELL and login shell — see config/bin/)
+# reaches root via `sudo -n duatic-exec ...` to regain ambient CAP_NET_RAW; sudo's env_reset
+# would otherwise strip DUATIC_EXTRA_GIDS before duatic-sync-groups gets to see it. SUDO_UID/
+# SUDO_GID/SUDO_USER need no entry here — sudo always sets those for the command it runs,
+# env_reset or not, which is how duatic-exec knows who to drop back to.
+Defaults env_keep += "DUATIC_EXTRA_GIDS"

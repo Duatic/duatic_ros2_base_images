@@ -1,0 +1,27 @@
+name: pre-commit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner label(s) to run the job on'
+        type: string
+        default: 'ubuntu-latest'
+
+concurrency:
+  group: pre-commit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: Format
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: pre-commit/action@v3.0.1
