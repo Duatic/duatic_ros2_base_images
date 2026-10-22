@@ -77,7 +77,9 @@ and activated through `VIRTUAL_ENV`, `PATH` and `PYTHONPATH`:
 Run `./scripts/build.sh --help` for all flags.
 
 The `ros:<distro>-ros-base` parents are pinned by digest in `docker/Dockerfile`, one stage per
-distro. Dependabot opens a pull request when a digest changes.
+distro. Dependabot opens a pull request when a digest changes and requests review from the
+code owners. Merged bumps go out with the next release as a patch, listed under
+"Base Image Updates".
 
 ### Colcon mixins
 
