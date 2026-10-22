@@ -89,6 +89,11 @@ RUN chmod -R a+rX ${COLCON_HOME}
 
 RUN git config --system --add safe.directory '*'
 
+# Install a workspace's declared dependencies (rosdep keys, Aptfile, requirements.txt), recording
+# what could not be resolved under /etc/duatic/.
+COPY --chmod=755 scripts/rosdep_install.sh /usr/local/bin/duatic-rosdep-install
+COPY --chmod=755 scripts/install_product_deps.sh /usr/local/bin/duatic-install-product-deps
+
 ############################
 # dev: base + developer tooling + dev-container shell environment.
 ############################
@@ -125,8 +130,6 @@ RUN echo "cachebust: ${CACHEBUST}" && \
 
 # duatic-deps installs a workspace's declared dependencies into the running container;
 # duatic-doctor diagnoses capabilities, groups, devices, DDS and unresolved deps.
-COPY --chmod=755 scripts/rosdep_install.sh /usr/local/bin/duatic-rosdep-install
-COPY --chmod=755 scripts/install_product_deps.sh /usr/local/bin/duatic-install-product-deps
 COPY --chmod=755 scripts/duatic_deps.sh /usr/local/bin/duatic-deps
 COPY --chmod=755 scripts/duatic_doctor.sh /usr/local/bin/duatic-doctor
 
