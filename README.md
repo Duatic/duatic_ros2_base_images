@@ -102,7 +102,9 @@ is squash-merged and the changelog is built from them.
 
 ## Contributing
 
-```bash
-pre-commit install
-pre-commit run --all-files
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+BSD-3-Clause, see [LICENSE](LICENSE). The vendored colcon mixins are CC0-1.0, from
+[colcon/colcon-mixin-repository](https://github.com/colcon/colcon-mixin-repository).
