@@ -71,8 +71,7 @@ fi
 sudo apt-get update
 sudo duatic-rosdep-install "$SRC" "$ROS_DISTRO"
 sudo duatic-install-product-deps "$SRC" --lenient
-sudo apt-get clean
-sudo rm -rf /var/lib/apt/lists/*
+# No apt-get clean: a container may mount apt lists and downloaded packages as a cache.
 {
     [[ -z "$manifests" ]] || echo "$manifests"
     cat "$STAMP" 2>/dev/null || true
