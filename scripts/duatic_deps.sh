@@ -31,9 +31,41 @@ set -euo pipefail
 # container. Not persisted across container recreation: re-run it after recreating the
 # container, or whenever src/ gains a new dependency.
 #
-# Usage: duatic-deps [src_dir]   (default: $ROS_WS/src, e.g. /ros2_ws/src)
+# Usage: duatic-deps [--if-changed | --list] [src_dir]   (default: $ROS_WS/src, e.g. /ros2_ws/src)
+#   --if-changed  skip the install when every manifest in src_dir is already in /etc/duatic/deps.stamp
+#   --list        print the checksum and path of every manifest in src_dir and exit
+#
+# The stamp lists every manifest already installed. An image that installs a workspace's
+# dependencies at build time writes it with --list, and each install adds to it, so a container
+# whose src/ holds no new or changed manifest skips.
 
+STAMP=/etc/duatic/deps.stamp
+mode=install
+case "${1:-}" in
+    --if-changed | --list)
+        mode="${1#--}"
+        shift
+        ;;
+esac
 SRC="${1:-${ROS_WS:-/ros2_ws}/src}"
+
+# Checksum and path of every package.xml, Aptfile and requirements.txt the installers read.
+manifest_list() {
+    (cd "$SRC" && find . \( -name build -o -name install -o -name log -o -name .venv -o -name node_modules \) -prune \
+        -o -type f \( -name package.xml -o -name Aptfile -o -name requirements.txt \) -print0 |
+        xargs -0 -r sha256sum | LC_ALL=C sort)
+}
+
+manifests=$(manifest_list)
+if [[ "$mode" == list ]]; then
+    echo "$manifests"
+    exit 0
+fi
+if [[ "$mode" == if-changed && -z "$(LC_ALL=C comm -23 <(echo "$manifests") <(LC_ALL=C sort "$STAMP" 2>/dev/null || true))" ]]; then
+    echo "duatic-deps: every manifest in $SRC is already installed, nothing to do."
+    exit 0
+fi
+
 : "${ROS_DISTRO:?ROS_DISTRO not set}"
 
 sudo apt-get update
@@ -41,3 +73,8 @@ sudo duatic-rosdep-install "$SRC" "$ROS_DISTRO"
 sudo duatic-install-product-deps "$SRC" --lenient
 sudo apt-get clean
 sudo rm -rf /var/lib/apt/lists/*
+{
+    [[ -z "$manifests" ]] || echo "$manifests"
+    cat "$STAMP" 2>/dev/null || true
+} | LC_ALL=C sort -u | sudo tee "$STAMP.new" >/dev/null
+sudo mv "$STAMP.new" "$STAMP"

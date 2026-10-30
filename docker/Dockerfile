@@ -60,7 +60,8 @@ ENV SHELL=/bin/bash \
     DEBIAN_FRONTEND=noninteractive \
     VIRTUAL_ENV=/opt/duatic/venv \
     PATH=/opt/duatic/venv/bin:$PATH \
-    PYTHONPATH=/opt/duatic/venv/site-packages
+    PYTHONPATH=/opt/duatic/venv/site-packages \
+    PIP_CONSTRAINT=/etc/duatic/pip-constraints.txt
 
 # ROS desktop-full + build tooling
 # hadolint ignore=DL3008
@@ -73,6 +74,10 @@ RUN echo "cachebust: ${CACHEBUST}" && \
     python3-vcs2l python3-colcon-common-extensions python3-colcon-mixin \
     ros-$ROS_DISTRO-rmw-cyclonedds-cpp \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Pins numpy to the apt version the ROS C extensions are built against, for every pip install.
+RUN mkdir -p /etc/duatic && \
+    python3 -c 'import numpy; print(f"numpy=={numpy.__version__}")' > "$PIP_CONSTRAINT"
 
 # The global venv. ROS ships rclpy/ament_*/numpy as apt packages, and an isolated venv would break `import rclpy`.
 # With --system-site-packages, pip only installs what apt does not already satisfy,

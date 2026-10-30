@@ -34,7 +34,7 @@ To open further shells in a running container as the same user, use
 | --- | --- |
 | `cb` | `colcon build` with the `release ccache compile-commands` mixins. `cb s` adds `--symlink-install`, `cb upto P..` / `cb only P..` select packages (`*` wildcards allowed). Run `cb help` for the full list. |
 | `cc` | Clean `build/`, `install/` and `log/` of the workspace. |
-| `duatic-deps [src]` | Install every dependency `src/` declares: rosdep keys, plus every `Aptfile` (apt) and `requirements.txt` (pip) at any depth. |
+| `duatic-deps [--if-changed \| --list] [src]` | Install every dependency `src/` declares: rosdep keys, plus every `Aptfile` (apt) and `requirements.txt` (pip) at any depth. `--if-changed` skips the install when every manifest is already listed in `/etc/duatic/deps.stamp`, which every install extends. `--list` prints those entries, for an image that installs a workspace's dependencies at build time to write. |
 | `duatic-doctor` | Diagnose capabilities, device groups, `/run/udev`, DDS config and unresolved dependencies. |
 | `duatic-exec` | Enter the container as the host user with device groups synced and `CAP_NET_RAW`. |
 | `duatic-shell` | The container's `$SHELL`. Reaches `duatic-exec` through `sudo` for shells that start without it, such as VSCode terminals. |
@@ -58,6 +58,9 @@ and activated through `VIRTUAL_ENV`, `PATH` and `PYTHONPATH`:
   requirements apt already satisfies.
 - `PYTHONPATH` makes the venv visible to `/usr/bin/python3` tools such as `ros2` and `colcon`.
   Do not pip-install colcon.
+- `PIP_CONSTRAINT` points at `/etc/duatic/pip-constraints.txt`, which pins numpy to the apt
+  version. The ROS C extensions are built against that numpy, so a requirement that needs a
+  different one fails to resolve instead of breaking `rclpy` at import.
 
 `sudo pip3` targets the same venv.
 
