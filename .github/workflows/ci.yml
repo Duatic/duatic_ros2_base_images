@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ros_distro: [jazzy, kilted, lyrical, rolling]
+        ros_distro: [humble, jazzy, kilted, lyrical, rolling]
     uses: ./.github/workflows/build.yml
     permissions:
       contents: read

@@ -8,7 +8,7 @@ Opinionated ROS 2 Docker images for robot software development, built for `linux
 | `ghcr.io/duatic/ros2-base` | `ros:<distro>-ros-base` + `ros-<distro>-desktop-full` (rviz, rqt, Gazebo) + build toolchain (colcon, vcs, ccache, CycloneDDS) + a global pip venv + vendored colcon mixins + `duatic-rosdep-install` / `duatic-install-product-deps` for installing a workspace's dependencies at build time. |
 | `ghcr.io/duatic/ros2-dev` | `ros2-base` + developer tooling (gdb, clangd, clang-format, pre-commit, plotjuggler, rqt monitors, ...) + shell setup + an entrypoint that runs as the host user. |
 
-Distros: `jazzy`, `kilted`, `lyrical`, `rolling`.
+Distros: `humble`, `jazzy`, `kilted`, `lyrical`, `rolling`.
 
 Tags: `:<distro>` (latest release), `:<distro>-X.Y.Z` (immutable), `:<distro>-X.Y`.
 
