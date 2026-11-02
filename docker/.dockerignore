@@ -1,0 +1,9 @@
+build/
+log/
+.vscode/
+__pycache__/
+*.pyc
+*.log
+.git/
+*.tar.gz
+*.zip

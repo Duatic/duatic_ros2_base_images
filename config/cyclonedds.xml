@@ -1,0 +1,18 @@
+<!-- DDS config baked into the dev image at /etc/cyclonedds.xml. -->
+<CycloneDDS>
+  <Domain>
+    <General>
+      <AllowMulticast>true</AllowMulticast>
+      <Interfaces>
+        <NetworkInterface name="${CYCLONEDDS_IFACE:-lo}"/>
+      </Interfaces>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>250</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer Address="${CYCLONEDDS_PEER:-localhost}"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

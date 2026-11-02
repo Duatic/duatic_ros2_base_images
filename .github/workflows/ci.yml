@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner label(s) for the amd64 builds'
+        type: string
+        default: 'ubuntu-latest'
+      runner_arm64:
+        description: 'Runner label(s) for the arm64 builds'
+        type: string
+        default: 'ubuntu-24.04-arm'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        ros_distro: [humble, jazzy, kilted, lyrical, rolling]
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      ros_distro: ${{ matrix.ros_distro }}
+      runner: ${{ inputs.runner || 'ubuntu-latest' }}
+      runner_arm64: ${{ inputs.runner_arm64 || 'ubuntu-24.04-arm' }}
