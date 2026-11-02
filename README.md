@@ -81,8 +81,8 @@ Run `./scripts/build.sh --help` for all flags.
 
 The `ros:<distro>-ros-base` parents are pinned by digest in `docker/Dockerfile`, one stage per
 distro. Dependabot opens a pull request when a digest changes and requests review from the
-code owners. Merged bumps go out with the next release as a patch, listed under
-"Base Image Updates".
+code owners. Its commits are `fix(deps)`, so merged bumps go out with the next release as a
+patch.
 
 ### Colcon mixins
 
@@ -93,15 +93,21 @@ the ones here.
 
 ## Releases
 
-1. Run the **Release** workflow from the Actions tab. It opens a `release: X.Y.Z` pull request
-   that bumps `version.txt` and adds the `CHANGELOG.md` section. The bump comes from the
-   conventional commit titles since the last tag: `feat` is minor, `!` or `BREAKING CHANGE` is
-   major, and anything else is patch. A `Release-As: X.Y.Z` commit footer overrides it.
-2. Merge the pull request. This tags `vX.Y.Z`, publishes the GitHub Release, and pushes the
-   multi-arch images for every distro.
+Releases use the changelog release workflows of
+[Duatic/ci-workflows](https://github.com/Duatic/ci-workflows#changelog-releases). The version is
+the highest `vX.Y.Z` tag.
+
+1. Run the **Release** workflow from the Actions tab and pick the bump: `derived` (from the
+   commits), `major`, `minor` or `patch`. It opens a draft `release: X.Y.Z` pull request that adds
+   the next section to `CHANGELOG.rst`, with every commit since the last tag. `chore`, `ci`,
+   `test` and `build` commits are left out of the notes; with nothing else since the last tag,
+   there is nothing to release.
+2. Merge the pull request. This tags `vX.Y.Z`, publishes the GitHub Release with that section as
+   its notes, and pushes the multi-arch images for every distro.
 
 Pull request titles must be conventional commits (`feat: ...`, `fix(dev): ...`), since `main`
-is squash-merged and the changelog is built from them.
+is squash-merged and the changelog is built from them. Notes that should say more than a title
+go under an `Upcoming changes` heading in `CHANGELOG.rst`.
 
 ## Contributing
 
