@@ -4,4 +4,4 @@
 # so without this drop-in `sudo pip3 install X` would silently target the SYSTEM python while
 # the unprivileged `pip3 install X` targets the venv — two different places, same command.
 Defaults secure_path="/opt/duatic/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-Defaults env_keep += "VIRTUAL_ENV PYTHONPATH"
+Defaults env_keep += "VIRTUAL_ENV PYTHONPATH PIP_CONSTRAINT"
