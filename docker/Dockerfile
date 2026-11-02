@@ -120,7 +120,7 @@ RUN echo "cachebust: ${CACHEBUST}" && \
     apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-    apt-transport-https unzip gpg black socat gh \
+    apt-transport-https unzip gpg black socat gh bash-completion \
     clangd clang-format clang-format-20 pre-commit sudo gosu libcap2-bin \
     pipx gdb xterm x11-apps && \
     for pkg in \
@@ -161,7 +161,7 @@ RUN { \
       echo ''; \
       echo '# Duatic: interactive non-login shells read only this file, so load the same drop-ins'; \
       echo '# /etc/profile.d gives login shells. All are self-guarded, so sourcing them twice is a no-op.'; \
-      echo 'for _duatic_f in /etc/profile.d/10-duatic-ros.sh /etc/profile.d/20-duatic-workflow.sh /etc/profile.d/30-duatic-prompt.sh /etc/profile.d/40-duatic-history.sh; do'; \
+      echo 'for _duatic_f in /etc/profile.d/bash_completion.sh /etc/profile.d/10-duatic-ros.sh /etc/profile.d/20-duatic-workflow.sh /etc/profile.d/30-duatic-prompt.sh /etc/profile.d/40-duatic-history.sh; do'; \
       echo '    [ -r "$_duatic_f" ] && . "$_duatic_f"'; \
       echo 'done'; \
       echo 'unset _duatic_f'; \
