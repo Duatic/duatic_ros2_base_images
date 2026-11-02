@@ -36,8 +36,8 @@ set -euo pipefail
 #   --list        print the checksum and path of every manifest in src_dir and exit
 #
 # The stamp lists every manifest already installed. An image that installs a workspace's
-# dependencies at build time writes it with --list, and each install adds to it, so a container
-# whose src/ holds no new or changed manifest skips.
+# dependencies at build time writes it with --list, and each complete install adds to it, so a
+# container whose src/ holds no new or changed manifest skips.
 
 STAMP=/etc/duatic/deps.stamp
 mode=install
@@ -72,6 +72,12 @@ sudo apt-get update
 sudo duatic-rosdep-install "$SRC" "$ROS_DISTRO"
 sudo duatic-install-product-deps "$SRC" --lenient
 # No apt-get clean: a container may mount apt lists and downloaded packages as a cache.
+
+# Only a complete install is recorded, so --if-changed retries anything that failed.
+if [[ -s /etc/duatic/unresolved-rosdep.txt || -s /etc/duatic/unresolved-deps.txt ]]; then
+    echo "duatic-deps: some dependencies are unresolved (see duatic-doctor); not updating $STAMP." >&2
+    exit 0
+fi
 {
     [[ -z "$manifests" ]] || echo "$manifests"
     cat "$STAMP" 2>/dev/null || true

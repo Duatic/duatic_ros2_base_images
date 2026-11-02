@@ -133,6 +133,10 @@ RUN echo "cachebust: ${CACHEBUST}" && \
     done && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Keep downloaded packages so a container can mount /var/cache/apt as a cache.
+RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' >/etc/apt/apt.conf.d/keep-cache
+
 # duatic-deps installs a workspace's declared dependencies into the running container;
 # duatic-doctor diagnoses capabilities, groups, devices, DDS and unresolved deps.
 COPY --chmod=755 scripts/duatic_deps.sh /usr/local/bin/duatic-deps

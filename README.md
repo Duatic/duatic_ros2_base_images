@@ -34,7 +34,7 @@ To open further shells in a running container as the same user, use
 | --- | --- |
 | `cb` | `colcon build` with the `release ccache compile-commands` mixins. `cb s` adds `--symlink-install`, `cb upto P..` / `cb only P..` select packages (`*` wildcards allowed). Run `cb help` for the full list. |
 | `cc` | Clean `build/`, `install/` and `log/` of the workspace. |
-| `duatic-deps [--if-changed \| --list] [src]` | Install every dependency `src/` declares: rosdep keys, plus every `Aptfile` (apt) and `requirements.txt` (pip) at any depth. `--if-changed` skips the install when every manifest is already listed in `/etc/duatic/deps.stamp`, which every install extends. `--list` prints those entries, for an image that installs a workspace's dependencies at build time to write. |
+| `duatic-deps [--if-changed \| --list] [src]` | Install every dependency `src/` declares: rosdep keys, plus every `Aptfile` (apt) and `requirements.txt` (pip) at any depth. `--if-changed` skips the install when every manifest is already listed in `/etc/duatic/deps.stamp`, which every install without unresolved dependencies extends. Downloaded `.deb`s are kept, so `/var/cache/apt` can be mounted as a cache. `--list` prints those entries, for an image that installs a workspace's dependencies at build time to write. |
 | `duatic-doctor` | Diagnose capabilities, device groups, `/run/udev`, DDS config and unresolved dependencies. |
 | `duatic-exec` | Enter the container as the host user with device groups synced and `CAP_NET_RAW`. |
 | `duatic-shell` | The container's `$SHELL`. Reaches `duatic-exec` through `sudo` for shells that start without it, such as VSCode terminals. |
