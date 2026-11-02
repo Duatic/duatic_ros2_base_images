@@ -1,41 +1,59 @@
 name: Release
 
-# Dispatch opens (or refreshes) the `release: X.Y.Z` pull request: version bump in version.txt
-# and the CHANGELOG.md section, derived from conventional commits since the last tag.
-# Merging it tags vX.Y.Z, publishes the GitHub Release and pushes the versioned images.
+# Dispatch opens the `release: X.Y.Z` pull request with the next CHANGELOG.rst section, the bump
+# derived from the commits unless overridden. Merging it tags vX.Y.Z, publishes the GitHub Release
+# and pushes the versioned images for every distro.
 
 on:
   workflow_dispatch:
     inputs:
+      bump:
+        description: 'Override the bump derived from the commits'
+        type: choice
+        options: [derived, major, minor, patch]
+        default: derived
       runner:
-        description: 'Runner label(s) for the release job'
+        description: 'Runner label(s) for the prepare job'
         type: string
         default: 'ubuntu-latest'
-  push:
-    branches: [main]
-
-permissions:
-  contents: write
-  pull-requests: write
+  pull_request:
+    types: [closed]
 
 jobs:
-  release-please:
-    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+  prepare:
+    if: github.event_name == 'workflow_dispatch'
+    uses: Duatic/ci-workflows/.github/workflows/reusable_prepare_changelog_release.yml@v1
+    with:
+      bump: ${{ inputs.bump }}
+      runner: ${{ inputs.runner }}
+    secrets: inherit
+
+  tag:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged && startsWith(github.event.pull_request.title, 'release:')
+    permissions:
+      contents: write
+    uses: Duatic/ci-workflows/.github/workflows/reusable_changelog_release_tag.yml@v1
+
+  # The tag workflow has no outputs, and a tag pushed with GITHUB_TOKEN starts no workflow, so the
+  # version comes from the merged pull request's title.
+  version:
+    needs: tag
+    runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      version: ${{ steps.release.outputs.version }}
+      version: ${{ steps.parse.outputs.version }}
     steps:
-      - id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          skip-github-release: ${{ github.event_name == 'workflow_dispatch' }}
-          skip-github-pull-request: ${{ github.event_name == 'push' }}
+      - id: parse
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ ! "$TITLE" =~ ^release:\ ([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::cannot read a version from the title: $TITLE"
+            exit 1
+          fi
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
 
   publish:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -47,4 +65,4 @@ jobs:
     with:
       ros_distro: ${{ matrix.ros_distro }}
       push: true
-      version: ${{ needs.release-please.outputs.version }}
+      version: ${{ needs.version.outputs.version }}
