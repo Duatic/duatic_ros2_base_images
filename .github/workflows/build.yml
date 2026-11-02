@@ -87,7 +87,7 @@ jobs:
           touch "digests/base/${BASE_DIGEST#sha256:}" "digests/dev/${DEV_DIGEST#sha256:}"
 
       - if: inputs.push
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-${{ inputs.ros_distro }}-${{ matrix.arch }}
           path: digests/
