@@ -29,7 +29,7 @@
 #   dev   base + developer tooling, shell setup and the UID-remapping entrypoint
 #
 # Build args:
-#   ROS_DISTRO  jazzy | kilted | lyrical | rolling (selects one of the ros-<distro> stages)
+#   ROS_DISTRO  humble | jazzy | kilted | lyrical | rolling (selects one of the ros-<distro> stages)
 #   CACHEBUST   bump to force a fresh apt-get update/upgrade
 #   IMAGE_VERSION  shown in the dev prompt and by duatic-doctor
 #
@@ -38,6 +38,7 @@
 ARG ROS_DISTRO=jazzy
 
 # One literal FROM per distro, pinned by digest so Dependabot can bump them.
+FROM docker.io/library/ros:humble-ros-base@sha256:d9bcf2e6f72df127fdee07048c2e87b1b4b9a59a74af0592f4489fc2844aa855 AS ros-humble
 FROM docker.io/library/ros:jazzy-ros-base@sha256:103b6c417973394659af6804d4917cd489b91e5ed22eb7bef263025a3bed2410 AS ros-jazzy
 FROM docker.io/library/ros:kilted-ros-base@sha256:b22b776bb18f5eb78dbf456fdb5a5c199ec04316fb3a2cf6b654ab954abd3e62 AS ros-kilted
 FROM docker.io/library/ros:lyrical-ros-base@sha256:d9078270abaeae65497036085f1654c75ec0a95e2aca5ecf7ddc0846a6cd69e1 AS ros-lyrical
@@ -114,16 +115,17 @@ ENV DUATIC_DEV_CONTAINER=true \
     SHELL=/usr/local/bin/duatic-shell
 WORKDIR ${ROS_WS}
 
-# Developer tooling. ROS-distro-specific packages are best-effort: newer distros may not ship them yet.
+# Developer tooling. The packages in the loop are best-effort: not every distro ships them.
 # hadolint ignore=DL3008
 RUN echo "cachebust: ${CACHEBUST}" && \
     apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
     apt-transport-https unzip gpg black socat gh bash-completion \
-    clangd clang-format clang-format-20 pre-commit sudo gosu libcap2-bin \
+    clangd clang-format pre-commit sudo gosu libcap2-bin \
     pipx gdb xterm x11-apps && \
     for pkg in \
+        clang-format-20 \
         ros-$ROS_DISTRO-rqt-runtime-monitor ros-$ROS_DISTRO-rqt-robot-monitor \
         ros-$ROS_DISTRO-plotjuggler ros-$ROS_DISTRO-plotjuggler-ros \
         ros-$ROS_DISTRO-rosbridge-suite ros-$ROS_DISTRO-ros2controlcli \

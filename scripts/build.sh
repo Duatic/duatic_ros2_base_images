@@ -35,7 +35,7 @@ Usage:
                      [--platform PLATFORMS] [--version X.Y.Z] [--cachebust STR] [--push]
 
 Flags:
-  --ros-distro DISTRO  jazzy | kilted | lyrical | rolling            (default: jazzy)
+  --ros-distro DISTRO  humble | jazzy | kilted | lyrical | rolling   (default: jazzy)
   --target TARGET      base | dev | all                              (default: all)
   --platform LIST      e.g. linux/arm64 or linux/amd64,linux/arm64   (default: native)
                        More than one platform requires --push.
@@ -69,7 +69,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$ROS_DISTRO" in
-    jazzy | kilted | lyrical | rolling) ;;
+    humble | jazzy | kilted | lyrical | rolling) ;;
     *) echo "build.sh: unsupported ROS distro '$ROS_DISTRO'" >&2; exit 2 ;;
 esac
 case "$TARGET" in
