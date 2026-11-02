@@ -49,6 +49,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Releases skip the Actions cache: CACHEBUST changes every run, and a release would race CI's writes.
       - name: Build base
         id: base
         uses: docker/build-push-action@v7
@@ -60,8 +61,8 @@ jobs:
             ROS_DISTRO=${{ inputs.ros_distro }}
             CACHEBUST=${{ github.run_id }}
           outputs: ${{ inputs.push && format('type=image,name={0}/ros2-base,push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_NS) || 'type=cacheonly' }}
-          cache-from: type=gha,scope=${{ inputs.ros_distro }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.ros_distro }}-${{ matrix.arch }},ignore-error=true
+          cache-from: ${{ !inputs.push && format('type=gha,scope={0}-{1}', inputs.ros_distro, matrix.arch) || '' }}
+          cache-to: ${{ !inputs.push && format('type=gha,mode=max,scope={0}-{1},ignore-error=true', inputs.ros_distro, matrix.arch) || '' }}
 
       - name: Build dev
         id: dev
@@ -75,7 +76,7 @@ jobs:
             CACHEBUST=${{ github.run_id }}
             IMAGE_VERSION=${{ inputs.version }}
           outputs: ${{ inputs.push && format('type=image,name={0}/ros2-dev,push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_NS) || 'type=cacheonly' }}
-          cache-from: type=gha,scope=${{ inputs.ros_distro }}-${{ matrix.arch }}
+          cache-from: ${{ !inputs.push && format('type=gha,scope={0}-{1}', inputs.ros_distro, matrix.arch) || '' }}
 
       - name: Record digests
         if: inputs.push
