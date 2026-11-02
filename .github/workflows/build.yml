@@ -51,7 +51,7 @@ jobs:
 
       - name: Build base
         id: base
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: docker/Dockerfile
           target: base
@@ -65,7 +65,7 @@ jobs:
 
       - name: Build dev
         id: dev
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: docker/Dockerfile
           target: dev
