@@ -61,7 +61,7 @@ jobs:
             CACHEBUST=${{ github.run_id }}
           outputs: ${{ inputs.push && format('type=image,name={0}/ros2-base,push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_NS) || 'type=cacheonly' }}
           cache-from: type=gha,scope=${{ inputs.ros_distro }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.ros_distro }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.ros_distro }}-${{ matrix.arch }},ignore-error=true
 
       - name: Build dev
         id: dev
