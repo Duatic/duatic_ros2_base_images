@@ -74,6 +74,13 @@ if [ "$(id -u)" = "0" ]; then
 
         export HOME="/home/$HOST_USER"
 
+        # Docker creates missing bind-mount targets and their parents as root, and so does any
+        # process that entered as root. Hand the top of the home back; mount points are left alone.
+        find "$HOME" -maxdepth 3 -user 0 -print0 2>/dev/null |
+            while IFS= read -r -d '' _path; do
+                mountpoint -q "$_path" || chown -h "${HOST_UID}:${HOST_GID}" "$_path" 2>/dev/null || true
+            done
+
         # Give the user ownership of the workspace root so they can write
         # files like .colcon_build_mode (bind-mounted subdirs are unaffected).
         chown "${HOST_UID}:${HOST_GID}" /ros2_ws 2>/dev/null || true
