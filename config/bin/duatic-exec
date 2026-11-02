@@ -63,7 +63,8 @@ done
 HOST_USER="$TARGET_USER" duatic-sync-groups
 
 _cap_args=""
-if capsh --has-b=cap_net_raw 2>/dev/null; then
+# Bit 13 of the bounding set is CAP_NET_RAW. Read directly: older capsh has no --has-b.
+if (( (0x$(awk '/^CapBnd:/ {print $2}' /proc/self/status) >> 13) & 1 )); then
     _cap_args="--inh-caps=+net_raw --ambient-caps=+net_raw"
 else
     echo "duatic-exec: CAP_NET_RAW not in the bounding set; EtherCAT will need root." >&2

@@ -55,7 +55,7 @@ echo ""
 echo "=== EtherCAT (CAP_NET_RAW) ==="
 if capsh --has-a=cap_net_raw 2>/dev/null; then
     _ok "held by this shell — EtherCAT should work"
-elif capsh --has-b=cap_net_raw 2>/dev/null; then
+elif (( (0x$(awk '/^CapBnd:/ {print $2}' /proc/self/status) >> 13) & 1 )); then  # CAP_NET_RAW in the bounding set
     _bad "available but NOT held by this shell — re-enter via duatic-exec/duatic-shell; a raw 'docker exec -u' bypasses it"
 else
     _bad "not in the bounding set — EtherCAT will need root. Container needs --cap-add=SYS_NICE and no --cap-drop that removes NET_RAW"
