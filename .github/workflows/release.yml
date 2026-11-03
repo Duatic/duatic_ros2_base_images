@@ -60,7 +60,7 @@ jobs:
       push: true
       version: ${{ needs.version.outputs.version }}
 
-  # Last: a product repository calling the factory at vX or vX.Y.Z builds on the base images of
+  # Last: a repository calling the factory at vX or vX.Y.Z builds on the base images of
   # that release (scripts/image_env.sh), so the tags exist only once every distro is pushed. A
   # failed distro leaves the release untagged, and vX on the previous one.
   tag:

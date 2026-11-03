@@ -1,13 +1,13 @@
 # duatic_ros2_base_images
 
 Opinionated ROS 2 Docker images for robot software development, and the image factory that
-builds every Duatic product image on top of them.
+builds the Duatic images of every repository that calls it on top of them.
 
 - **Base images** (`ros2-base`, `ros2-dev`): generic, multi-arch, built and released by this
   repository. See [Using the dev image](#using-the-dev-image).
-- **Product images** (`<product>/<distro>-dev`, `<product>/<distro>-runtime`, `ci/<repo>/<distro>`):
+- **Workspace images** (`<name>/<distro>-dev`, `<name>/<distro>-runtime`, `ci/<repo>/<distro>`):
   built from the checkout of whichever repository calls this repository's reusable workflows.
-  See [Product images](#product-images).
+  See [Workspace images](#workspace-images).
 
 ## Base images
 
@@ -15,7 +15,7 @@ Built for `linux/amd64` and `linux/arm64`.
 
 | Image | Contents |
 | --- | --- |
-| `ghcr.io/duatic/ros2-base` | `ros:<distro>-ros-base` + `ros-<distro>-desktop-full` (rviz, rqt, Gazebo) + build toolchain (colcon, vcs, ccache, CycloneDDS) + a global pip venv + vendored colcon mixins + `duatic-rosdep-install` / `duatic-install-product-deps` for installing a workspace's dependencies at build time. |
+| `ghcr.io/duatic/ros2-base` | `ros:<distro>-ros-base` + `ros-<distro>-desktop-full` (rviz, rqt, Gazebo) + build toolchain (colcon, vcs, ccache, CycloneDDS) + a global pip venv + vendored colcon mixins + `duatic-rosdep-install` / `duatic-install-extra-deps` for installing a workspace's dependencies at build time. |
 | `ghcr.io/duatic/ros2-dev` | `ros2-base` + developer tooling (gdb, clangd, clang-format, pre-commit, plotjuggler, rqt monitors, ...) + shell setup + an entrypoint that runs as the host user. |
 
 Distros: `humble`, `jazzy`, `kilted`, `lyrical`, `rolling`.
@@ -51,8 +51,8 @@ To open further shells in a running container as the same user, use
 
 The ROS environment is sourced in this order, last wins: `/opt/ros/<distro>`, then
 `/opt/duatic/ws/install` (a prebuilt underlay, if a derived image adds one), then
-`$ROS_WS/install` (default `/ros2_ws`). The prompt shows `user@<product>-<distro>-<version>`;
-derived images set `DUATIC_PRODUCT`.
+`$ROS_WS/install` (default `/ros2_ws`). The prompt shows `user@<name>-<distro>-<version>`;
+derived images set `DUATIC_IMAGE_NAME`.
 
 DDS defaults to CycloneDDS on loopback (`/etc/cyclonedds.xml`). Set `CYCLONEDDS_IFACE` and
 `CYCLONEDDS_PEER` to use another interface.
@@ -101,70 +101,70 @@ patch.
 `$COLCON_HOME/mixin/default`. To refresh them, copy the `*.mixin` files from that repository over
 the ones here.
 
-## Product images
+## Workspace images
 
-The factory keeps no list of products: a repository calls its reusable workflows, and the
-factory builds that repository's image from its checkout, on top of the base images.
-`<product>` is the calling repository's name without its `duatic_` prefix, so `duatic_dynaarm`
+The factory keeps no list of repositories: a repository calls its reusable workflows, and the
+factory builds the workspace that repository roots (the repository and everything its
+`repos.list` collects) from its checkout, on top of the base images.
+`<name>` is the calling repository's name without its `duatic_` prefix, so `duatic_dynaarm`
 publishes `ghcr.io/duatic/dynaarm/<distro>-dev`.
 
 | Target | Image | Contents | Consumed by |
 | --- | --- | --- | --- |
-| `dev` | `ghcr.io/duatic/<product>/<distro>-dev` | `ros2-dev` + the product's dependencies, resolved **leniently**. When the product stack compiled, it also ships that prebuilt install as an underlay at `/opt/duatic/ws/install`, which [dev_workspace](https://github.com/Duatic/dev_workspace) overlays with its `src/`. When it did not, `dev` falls back to a **lean** image without it, so developers are never blocked. `DUATIC_UNDERLAY` records which one you got, and `duatic-doctor` reports it. | Developers, via dev_workspace |
-| `runtime` | `ghcr.io/duatic/<product>/<distro>-runtime` | The product stack on `ros2-base`, at `/opt/duatic/ws` (with a `/ros2_ws` symlink), and the robot entrypoint. An unresolved dependency **fails the build**: robots never ship incomplete. | Robots |
+| `dev` | `ghcr.io/duatic/<name>/<distro>-dev` | `ros2-dev` + the workspace's dependencies, resolved **leniently**. When the workspace compiled, it also ships that prebuilt install as an underlay at `/opt/duatic/ws/install`, which [dev_workspace](https://github.com/Duatic/dev_workspace) overlays with its `src/`. When it did not, `dev` falls back to a **lean** image without it, so developers are never blocked. `DUATIC_UNDERLAY` records which one you got, and `duatic-doctor` reports it. | Developers, via dev_workspace |
+| `runtime` | `ghcr.io/duatic/<name>/<distro>-runtime` | The compiled workspace on `ros2-base`, at `/opt/duatic/ws` (with a `/ros2_ws` symlink), and the robot entrypoint. An unresolved dependency **fails the build**: robots never ship incomplete. | Robots |
 | `ci` | `ghcr.io/duatic/ci/<repo>/<distro>:<commit>` | The workspace the repository roots, without the repository itself, behind the same strict gate as `runtime`. Private: it contains compiled private upstream code. | [ci-workflows](https://github.com/Duatic/ci-workflows), which builds and tests the repository on top |
 
-`dev` and `runtime` share one compile of the product stack: the internal, never-published
-`product-build` stage collects the repository's full repo set and runs `colcon build` once at
+`dev` and `runtime` share one compile of the workspace: the internal, never-published
+`workspace` stage collects the repository's full repo set and runs `colcon build` once at
 `/opt/duatic/ws`. `runtime` builds on top of it and `dev` copies its install in.
 
 Tags:
 - `dev`: rolling `:latest` and immutable `:YYYY-MM-DD`. A lean image publishes only as
-  `:YYYY-MM-DD`, so `:latest` stays on the last build whose stack compiled.
+  `:YYYY-MM-DD`, so `:latest` stays on the last build whose workspace compiled.
 - `runtime`, nightly: `:edge` (whatever the last nightly built, for integration robots) and
   immutable `:YYYY-MM-DD`.
 - `runtime`, release: immutable `:<version>` and rolling `:stable`. See
-  [Releases of product images](#releases-of-product-images). Customer robots pin a
+  [Releases of workspace images](#releases-of-workspace-images). Customer robots pin a
   `:<version>` or track `:stable`.
 
-### What makes up a product
+### What makes up a workspace
 
-The product repository owns its composition. The factory takes its checkout and runs
+The calling repository owns its composition. The factory takes its checkout and runs
 `vcs import` over its `repos.list`, following the `repos.list` of every repository listed there
 and failing when two of them pin the same repository differently (`scripts/expand_repos.py`).
 A repository without a `repos.list` builds on its own.
 
 Dependencies rosdep cannot resolve are declared in `requirements.txt` (pip) and `Aptfile` (apt)
-files at any depth of the workspace, which `duatic-install-product-deps` installs after rosdep.
-Both passes in `product-build` are **lenient**: unresolvable rosdep keys go to
+files at any depth of the workspace, which `duatic-install-extra-deps` installs after rosdep.
+Both passes in the `workspace` stage are **lenient**: unresolvable rosdep keys go to
 `/etc/duatic/unresolved-rosdep.txt` and uninstallable manifests to
 `/etc/duatic/unresolved-deps.txt`, without blocking the compile. Both files ship inside `dev`,
 and the `ci` stage, which `runtime` builds on, fails when either is non-empty.
 
 ### Every image knows what it is made of
 
-`dev`, `product-build` and `runtime` carry `/etc/duatic/sources.lock.repos`, the exact repo set
+`dev`, `workspace` and `runtime` carry `/etc/duatic/sources.lock.repos`, the exact repo set
 of the build with every entry pinned to a commit. Hand it to `vcs import`, or back to
 `docker buildx build --target runtime --build-context sourceslock=<dir with that file>`, to
 reconstruct the same source tree later.
 
 `dev` also carries `/etc/duatic/sources.repos`, the same set with each `version:` left on the
-branch it was checked out on. dev_workspace's `clone_repos.sh` extracts this one into its
-editable manifest.
+branch it was checked out on, as a starting point for an editable manifest.
 
-### Building product images locally
+### Building workspace images locally
 
 `--source` takes a checkout of the repository rooting the image, named after its `origin`
 remote. The image holds the checkout as it is, uncommitted changes included.
 
 ```bash
-# dev + runtime, sharing one product-stack compile (what the nightly does)
-./scripts/build_product.sh --source ../duatic_dynaarm --ros-distro jazzy
+# dev + runtime, sharing one workspace compile (what the nightly does)
+./scripts/build_workspace.sh --source ../duatic_dynaarm --ros-distro jazzy
 
 # a single target, or push to ghcr.io
-./scripts/build_product.sh --source ../duatic_dxtr --ros-distro jazzy --target runtime
-./scripts/build_product.sh --source ../duatic_dynaarm --ros-distro jazzy --target ci
-./scripts/build_product.sh --source ../duatic_dynaarm --ros-distro jazzy --push
+./scripts/build_workspace.sh --source ../duatic_dxtr --ros-distro jazzy --target runtime
+./scripts/build_workspace.sh --source ../duatic_dynaarm --ros-distro jazzy --target ci
+./scripts/build_workspace.sh --source ../duatic_dynaarm --ros-distro jazzy --push
 ```
 
 The private repositories need GitHub auth: `$GIT_AUTH_TOKEN`, or an existing `gh auth login`.
@@ -176,11 +176,11 @@ The parents are the base images of the release matching `$FACTORY_REF` (see
 `scripts/image_env.sh`), which the workflows set to the ref they run from. Preset
 `ROS2_BASE_IMAGE` / `ROS2_DEV_IMAGE` to build against other tags, such as unreleased base images.
 
-`scripts/build_product.sh --help` lists every flag and the tags each target produces.
+`scripts/build_workspace.sh --help` lists every flag and the tags each target produces.
 
 ### Calling the factory
 
-Every product workflow is `workflow_call` and builds the image of the repository calling it.
+Every workspace image workflow is `workflow_call` and builds the image of the repository calling it.
 They log in to Docker Hub first when the optional `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`
 secrets are set, so `docker.io` pulls are rate-limited per account instead of per IP.
 
@@ -200,34 +200,34 @@ secrets are set, so `docker.io` pulls are rate-limited per account instead of pe
       secrets: inherit
   ```
 - [`build-image.yml`](.github/workflows/build-image.yml): one `target` (`dev`, `runtime`,
-  `product` for dev and runtime together, or `ci`) for one distro. It returns the ci image
+  `dev,runtime` for both sharing one compile, or `ci`) for one distro. It returns the ci image
   (`target: ci`) or the release image (`target: runtime` with a `version`) as its `image`
   output. Private repositories need the `GH_PAT` secret.
 - [`release-image.yml`](.github/workflows/release-image.yml): see
-  [Releases of product images](#releases-of-product-images).
+  [Releases of workspace images](#releases-of-workspace-images).
 
-The product repositories need Write access to their image packages in GHCR.
+The calling repositories need Write access to their image packages in GHCR.
 
-### Releases of product images
+### Releases of workspace images
 
 `release-image.yml` (inputs `ros_distro`, `version`) builds `runtime` through `build-image.yml`
 from the revision the calling repository runs on, refuses to run if `<image>:<version>` already
 exists, pushes it, moves `:stable` to it, tags the caller `release/<distro>/<version>`, and attaches
 `sources.lock.repos` and a snapshot of what got installed (`dpkg -l`, `pip freeze`,
-`ros2 pkg list`) to a GitHub Release on that tag. A product repository dispatches it by hand: a
+`ros2 pkg list`) to a GitHub Release on that tag. A repository dispatches it by hand: a
 release is a deliberate act, separate from the nightly.
 
 ### Self-hosted runners
 
-Product builds run on self-hosted ARC runners, which host in-cluster pull-through registry
+Workspace image builds run on self-hosted ARC runners, which host in-cluster pull-through registry
 mirrors. When `$HOSTIP` (the node IP, from the Kubernetes downward API) is set,
-`build_product.sh` renders [`docker/buildkitd.toml.tmpl`](docker/buildkitd.toml.tmpl) with it and
+`build_workspace.sh` renders [`docker/buildkitd.toml.tmpl`](docker/buildkitd.toml.tmpl) with it and
 builds on a `docker-container` builder that pulls `docker.io` and `ghcr.io` through those
 mirrors. Without `$HOSTIP`, pulls go direct.
 
-`dev` and `runtime` reach `product-build` by stage name through the shared BuildKit cache, so
-every `build_product.sh` invocation must pass identical build args to it; see
-`ensure_product_build()`.
+`dev` and `runtime` reach the `workspace` stage by name through the shared BuildKit cache, so
+every `build_workspace.sh` invocation must pass identical build args to it; see
+`ensure_workspace_build()`.
 
 ## Releases
 
@@ -244,7 +244,7 @@ the highest `vX.Y.Z` tag.
    `vX.Y.Z`, moves `vX` to it and publishes the GitHub Release with that section as its notes.
    When a distro fails to publish, nothing is tagged.
 
-A release ships the base images and the factory together: a product repository calling the
+A release ships the base images and the factory together: a repository calling the
 factory at `@vX` builds on `ros2-base:<distro>-X`, at `@vX.Y.Z` on `ros2-base:<distro>-X.Y.Z`.
 A factory called at a branch or commit builds on the latest release, `ros2-base:<distro>`.
 

@@ -1,9 +1,9 @@
 name: Build image (reusable)
 
 # Reusable workflow: build (and optionally publish) one image target of the calling repository
-# for a single ROS distro: dev, runtime (with a version, what release-image.yml uses), product
-# (dev+runtime together, what nightly.yml uses), or ci (the repository's workspace without the
-# repository, which ci-workflows builds and tests on). See README.md for the architecture (stage graph, strict-vs-lenient dependency gate,
+# for a single ROS distro: dev, runtime (with a version, what release-image.yml uses),
+# dev,runtime (both sharing one compile, what nightly.yml uses), or ci (the repository's
+# workspace without the repository, which ci-workflows builds and tests on). See README.md for the architecture (stage graph, strict-vs-lenient dependency gate,
 # dev's lean fallback).
 
 on:
@@ -14,7 +14,7 @@ on:
         required: true
         type: string
       target:
-        description: "Image target to build (dev|runtime|product|ci)"
+        description: "Image target(s) to build: dev, runtime, dev,runtime (one shared compile) or ci"
         required: false
         default: "runtime"
         type: string
@@ -62,7 +62,7 @@ jobs:
     env:
       # Surfaced as env because the `secrets` context can't be read in a step-level `if`.
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      # Read by scripts/build_product.sh. Set here, not in the caller: workflow-level env is not
+      # Read by scripts/build_workspace.sh. Set here, not in the caller: workflow-level env is not
       # inherited through `uses:`.
       PARALLEL_WORKERS: "4"
       INNER_JOBS: "1"
@@ -70,7 +70,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      # Not persisted: the checkout's .git goes into the image's build stages. build_product.sh
+      # Not persisted: the checkout's .git goes into the image's build stages. build_workspace.sh
       # names the repository after the checkout's origin remote, not after this path.
       - name: Checkout the repository
         uses: actions/checkout@v7
@@ -128,10 +128,10 @@ jobs:
           if [ -n "$VERSION" ]; then
             ARGS+=(--version "$VERSION")
           fi
-          ./factory/scripts/build_product.sh "${ARGS[@]}"
+          ./factory/scripts/build_workspace.sh "${ARGS[@]}"
 
       - name: Write dev/runtime badge artifact
-        if: ${{ always() && inputs.publish && inputs.target == 'product' }}
+        if: ${{ always() && inputs.publish && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -151,7 +151,7 @@ jobs:
           render runtime "${{ steps.build.outputs.runtime_result }}"
 
       - name: Upload dev/runtime badge artifact
-        if: ${{ always() && inputs.publish && inputs.target == 'product' }}
+        if: ${{ always() && inputs.publish && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
         uses: actions/upload-artifact@v7
         with:
           name: badge-${{ inputs.ros_distro }}

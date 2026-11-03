@@ -13,7 +13,7 @@ if [ -f "/opt/ros/$ROS_DISTRO/setup.bash" ]; then
   source "/opt/ros/$ROS_DISTRO/setup.bash"
 fi
 
-# Source the prebuilt product workspace
+# Source the prebuilt workspace
 if [ -f "${ROS_WS}/install/setup.bash" ]; then
   # shellcheck source=/dev/null.
   source "${ROS_WS}/install/setup.bash"

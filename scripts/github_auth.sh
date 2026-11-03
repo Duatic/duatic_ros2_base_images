@@ -6,8 +6,8 @@ set -euo pipefail
 #
 #   github_auth.sh [--require] <command> [args...]
 #
-# github.com throttles ANONYMOUS clones per source IP, and the product repositories' nightly
-# builds (every distro of every product on the self-hosted runners, sharing one IP) exhaust
+# github.com throttles ANONYMOUS clones per source IP, and the nightly builds of every calling
+# repository (every distro, on the self-hosted runners, sharing one IP) exhaust
 # that budget: the clone is
 # then refused outright, with either
 #

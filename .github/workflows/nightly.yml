@@ -1,12 +1,12 @@
-name: Nightly product images
+name: Nightly images
 
 # Reusable workflow: nightly build of the calling repository's dev/runtime images, per ROS
 # distro, published to ghcr.io/duatic/<repository without duatic_>/, on top of this repository's
 # ros2-base / ros2-dev images. The calling repository's checkout roots the workspace, so what
 # goes into the image comes from it alone: its packages, repos.list, Aptfiles, requirements files
 # and rosdep keys. See README.md for the architecture (stage graph, strict-vs-lenient dependency
-# gate, dev's lean fallback, and why dev + runtime share one product-stack compile via the
-# `product` job below).
+# gate, dev's lean fallback, and why dev + runtime share one workspace compile via the
+# `build` job below).
 #
 # Each repository runs it on its own schedule, and its badges land on that repository's
 # `image-badges` branch.
@@ -29,13 +29,13 @@ on:
         default: false
         type: boolean
       runner:
-        description: "Runner label(s) for the build jobs. Product builds need the self-hosted runners' disk and registry mirror."
+        description: "Runner label(s) for the build jobs. Image builds need the self-hosted runners' disk and registry mirror."
         required: false
         default: "self-hosted"
         type: string
     secrets:
       GH_PAT:
-        description: "GitHub token used by vcs import to clone private product repos"
+        description: "GitHub token used by vcs import to clone private repositories"
         required: true
       DOCKERHUB_USERNAME:
         required: false
@@ -61,7 +61,7 @@ jobs:
           IN_DISTRO: ${{ inputs.ros_distro }}
           DEFAULT_DISTROS: ${{ env.DEFAULT_DISTROS }}
         run: |
-          # Add date for image tags (e.g. ghcr.io/duatic/<product>/<distro>-dev:<date>).
+          # Add date for image tags (e.g. ghcr.io/duatic/<name>/<distro>-dev:<date>).
           echo "image_date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
           # Split on commas, strip whitespace, drop empties -> a JSON array of distros.
@@ -69,14 +69,14 @@ jobs:
           echo "distros=$distros" >> "$GITHUB_OUTPUT"
           echo "Distros: $distros"
 
-  # Dev + runtime per distro, in ONE job (target: product). Both use the shared product
-  # stack (Dockerfile target product-build); build_product.sh compiles it once per job and reuses it
+  # Dev + runtime per distro, in ONE job (target: dev,runtime). Both use the shared workspace
+  # (Dockerfile target workspace); build_workspace.sh compiles it once per job and reuses it
   # for both, instead of compiling it twice across two separate jobs.
-  # Dev's deps are resolved LENIENTLY and it always publishes :latest — DUATIC_UNDERLAY
-  # (baked into the image) records whether the product stack actually compiled, so
-  # developers are never blocked even when it didn't. Runtime always requires a successful
-  # product stack build (robots never ship incomplete) and fails the job if it didn't.
-  product:
+  # Dev's deps are resolved LENIENTLY and it always publishes (a lean one only as :<date>):
+  # DUATIC_UNDERLAY (baked into the image) records whether the workspace actually compiled,
+  # so developers are never blocked even when it didn't. Runtime always requires a successful
+  # workspace build (robots never ship incomplete) and fails the job if it didn't.
+  build:
     needs: matrix
     if: ${{ needs.matrix.outputs.distros != '[]' }}
     permissions:
@@ -89,7 +89,7 @@ jobs:
     uses: ./.github/workflows/build-image.yml
     with:
       ros_distro: ${{ matrix.ros_distro }}
-      target: product
+      target: dev,runtime
       image_date: ${{ needs.matrix.outputs.image_date }}
       publish: ${{ inputs.publish }}
       runner: ${{ inputs.runner }}
@@ -102,7 +102,7 @@ jobs:
   # image-badges branch, apart from the badges branch its CI pushes to at the same time.
   badges:
     name: Publish status badges
-    needs: [matrix, product]
+    needs: [matrix, build]
     if: ${{ always() && inputs.publish }}
     runs-on: ${{ inputs.runner }}
     permissions:

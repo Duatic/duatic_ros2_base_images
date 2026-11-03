@@ -1,5 +1,5 @@
 # BuildKit config for the docker-container buildx builder used on self-hosted
-# ARC runners. Rendered by scripts/build_product.sh (envsubst substitutes ${HOSTIP} from
+# ARC runners. Rendered by scripts/build_workspace.sh (envsubst substitutes ${HOSTIP} from
 # the runner's downward-API env) and passed via `docker buildx create
 # --buildkitd-config`. Transparently mirrors build base-image pulls to the
 # in-cluster pull-through caches.

@@ -4,7 +4,7 @@ name: Release runtime image
 # CUSTOMER robots, from the revision the caller runs on. Callers trigger it manually only: a
 # release is a deliberate act, not a nightly side effect. See README.md for the
 # full image-set/tag design (:edge/:<date> nightly vs. :<version>/:stable release) and
-# scripts/build_product.sh --help for what --version actually does (immutability guard, tagging,
+# scripts/build_workspace.sh --help for what --version actually does (immutability guard, tagging,
 # :stable promotion).
 #
 # What this produces, given e.g. a call from duatic_dxtr with ros_distro=jazzy, version=1.0.0:
@@ -18,7 +18,7 @@ name: Release runtime image
 # the pushed image back from the registry.
 #
 # Reproducing this exact build later (e.g. to rebuild on a patched base image without
-# touching product source): pull the image, extract /etc/duatic/sources.lock.repos (or grab
+# touching the repository's source): pull the image, extract /etc/duatic/sources.lock.repos (or grab
 # it from the release assets), and pass it back in as
 #   docker buildx build --target runtime --build-context sourceslock=<dir with that file> ...
 
@@ -40,7 +40,7 @@ on:
         type: string
     secrets:
       GH_PAT:
-        description: "GitHub token used by vcs import to clone private product repos"
+        description: "GitHub token used by vcs import to clone private repositories"
         required: true
       DOCKERHUB_USERNAME:
         required: false
@@ -115,7 +115,7 @@ jobs:
           Robots pin to \`${IMAGE}\` directly, or track \`${IMAGE%:*}:stable\`.
           Reproduce this exact build: extract \`sources.lock.repos\` below and pass it to
           \`docker buildx build --target runtime --build-context sourceslock=<dir>\`
-          (see https://github.com/Duatic/duatic_ros2_base_images#releases-of-product-images).
+          (see https://github.com/Duatic/duatic_ros2_base_images#releases-of-workspace-images).
           EOF
           )" \
             sources.lock.repos packages.txt pip-freeze.txt ros2-pkg-list.txt digest.txt

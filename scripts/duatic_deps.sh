@@ -27,7 +27,7 @@ set -euo pipefail
 # duatic-deps — install every dependency a workspace's src/ declares (rosdep keys, every
 # Aptfile, every requirements.txt, at any depth), leniently, into the RUNNING container.
 #
-# The entry point for duatic-rosdep-install and duatic-install-product-deps in a running
+# The entry point for duatic-rosdep-install and duatic-install-extra-deps in a running
 # container. Not persisted across container recreation: re-run it after recreating the
 # container, or whenever src/ gains a new dependency.
 #
@@ -70,7 +70,7 @@ fi
 
 sudo apt-get update
 sudo duatic-rosdep-install "$SRC" "$ROS_DISTRO"
-sudo duatic-install-product-deps "$SRC" --lenient
+sudo duatic-install-extra-deps "$SRC" --lenient
 # No apt-get clean: a container may mount apt lists and downloaded packages as a cache.
 
 # Only a complete install is recorded, so --if-changed retries anything that failed.

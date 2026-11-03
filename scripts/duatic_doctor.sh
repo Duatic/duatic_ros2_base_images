@@ -37,7 +37,7 @@ _bad() { printf '  [FAIL] %s\n' "$1"; }
 _info() { printf '  %s\n' "$1"; }
 
 echo "=== Image ==="
-_info "product:     ${DUATIC_PRODUCT:-<unset>}"
+_info "image:       ${DUATIC_IMAGE_NAME:-<unset>}"
 _info "ros distro:  ${ROS_DISTRO:-<unset>}"
 _info "image version: ${DUATIC_IMAGE_VERSION:-<unset>}"
 if [ -f /opt/duatic/ws/install/setup.bash ]; then
