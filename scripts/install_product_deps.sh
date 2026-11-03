@@ -53,7 +53,7 @@ set -euo pipefail
 # mirroring rosdep_install.sh's /etc/duatic/unresolved-rosdep.txt (duatic-doctor reports
 # both). The manifest is TRUNCATED at the start of every run.
 #
-# NOTE: pip installs into the global venv (/opt/duatic/venv, first on PATH — see docker/Dockerfile's
+# NOTE: pip installs into the global venv (/opt/duatic/venv, first on PATH — see docker/base.Dockerfile's
 # base stage). It is created with --system-site-packages, so a requirement apt already satisfies
 # is deliberately SKIPPED rather than reinstalled: that is what keeps ROS's C-extension ABI (numpy
 # above all) intact, and what lets pip shadow a too-old apt version without having to uninstall

@@ -1,0 +1,157 @@
+name: Nightly product images
+
+# Reusable workflow: nightly build of the calling repository's dev/runtime images, per ROS
+# distro, published to ghcr.io/duatic/<repository without duatic_>/, on top of this repository's
+# ros2-base / ros2-dev images. The calling repository's checkout roots the workspace, so what
+# goes into the image comes from it alone: its packages, repos.list, Aptfiles, requirements files
+# and rosdep keys. See README.md for the architecture (stage graph, strict-vs-lenient dependency
+# gate, dev's lean fallback, and why dev + runtime share one product-stack compile via the
+# `product` job below).
+#
+# Each repository runs it on its own schedule, and its badges land on that repository's
+# `image-badges` branch.
+
+# Distros built when the caller gives none.
+env:
+  DEFAULT_DISTROS: "humble,jazzy,kilted,lyrical,rolling"
+
+on:
+  workflow_call:
+    inputs:
+      ros_distro:
+        description: "Comma-separated distros to build, e.g. 'jazzy,kilted'. Empty builds DEFAULT_DISTROS."
+        required: false
+        default: ""
+        type: string
+      publish:
+        description: "Push to ghcr.io and publish the badges"
+        required: false
+        default: false
+        type: boolean
+      runner:
+        description: "Runner label(s) for the build jobs. Product builds need the self-hosted runners' disk and registry mirror."
+        required: false
+        default: "self-hosted"
+        type: string
+    secrets:
+      GH_PAT:
+        description: "GitHub token used by vcs import to clone private product repos"
+        required: true
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+
+# Runs queue rather than cancel: tags are pushed per cell, so cancelling midway leaves the
+# matrix half-published with nothing to repair it. release-image.yml shares the group.
+concurrency:
+  group: duatic-image-publish
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      distros: ${{ steps.gen.outputs.distros }}
+      image_date: ${{ steps.gen.outputs.image_date }}
+    steps:
+      - id: gen
+        shell: bash
+        env:
+          IN_DISTRO: ${{ inputs.ros_distro }}
+          DEFAULT_DISTROS: ${{ env.DEFAULT_DISTROS }}
+        run: |
+          # Add date for image tags (e.g. ghcr.io/duatic/<product>/<distro>-dev:<date>).
+          echo "image_date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+          # Split on commas, strip whitespace, drop empties -> a JSON array of distros.
+          distros=$(jq -cR 'split(",") | map(gsub("\\s"; "")) | map(select(. != ""))' <<<"${IN_DISTRO:-$DEFAULT_DISTROS}")
+          echo "distros=$distros" >> "$GITHUB_OUTPUT"
+          echo "Distros: $distros"
+
+  # Dev + runtime per distro, in ONE job (target: product). Both use the shared product
+  # stack (Dockerfile target product-build); build_product.sh compiles it once per job and reuses it
+  # for both, instead of compiling it twice across two separate jobs.
+  # Dev's deps are resolved LENIENTLY and it always publishes :latest — DUATIC_UNDERLAY
+  # (baked into the image) records whether the product stack actually compiled, so
+  # developers are never blocked even when it didn't. Runtime always requires a successful
+  # product stack build (robots never ship incomplete) and fails the job if it didn't.
+  product:
+    needs: matrix
+    if: ${{ needs.matrix.outputs.distros != '[]' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        ros_distro: ${{ fromJSON(needs.matrix.outputs.distros) }}
+    uses: ./.github/workflows/build-image.yml
+    with:
+      ros_distro: ${{ matrix.ros_distro }}
+      target: product
+      image_date: ${{ needs.matrix.outputs.image_date }}
+      publish: ${{ inputs.publish }}
+      runner: ${{ inputs.runner }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # Coalesces every leg's badge artifact into a single commit on the calling repository's
+  # image-badges branch, apart from the badges branch its CI pushes to at the same time.
+  badges:
+    name: Publish status badges
+    needs: [matrix, product]
+    if: ${{ always() && inputs.publish }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download badge artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: badge-*
+          path: badges
+          merge-multiple: true
+
+      - name: Publish badges to branch
+        env:
+          TOKEN: ${{ github.token }}
+          DISTROS: ${{ needs.matrix.outputs.distros }}
+        run: |
+          set -euo pipefail
+          src="$PWD/badges"
+          mkdir out && cd out
+          git init -q -b image-badges
+          git remote add origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Build on the existing branch so badges of distros not built this run are kept
+          if git fetch -q --depth=1 origin image-badges; then git reset -q --hard FETCH_HEAD; fi
+
+          # A leg that never ran at all (e.g. skipped) uploaded nothing: it gets the same red
+          # "failed" badge as a leg that ran and failed.
+          render() { # <distro-kind>
+            local f="$src/$1.json" message="failed" color="red"
+            if [ -f "$f" ]; then
+              message=$(jq -r .message "$f")
+              color=$(jq -r .color "$f")
+            fi
+            curl -sSfG https://img.shields.io/static/v1 -o "$1.svg" \
+              --data-urlencode "label=" \
+              --data-urlencode "message=${message}" \
+              --data-urlencode "color=${color}"
+          }
+          for d in $(jq -r '.[]' <<<"$DISTROS"); do
+            render "$d-dev"
+            render "$d-runtime"
+          done
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Badges unchanged, nothing to publish."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -qm "Update image badges"
+          git push -q origin HEAD:image-badges

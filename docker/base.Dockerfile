@@ -33,7 +33,7 @@
 #   CACHEBUST   bump to force a fresh apt-get update/upgrade
 #   IMAGE_VERSION  shown in the dev prompt and by duatic-doctor
 #
-#   docker buildx build -f docker/Dockerfile --build-arg ROS_DISTRO=jazzy --target dev .
+#   docker buildx build -f docker/base.Dockerfile --build-arg ROS_DISTRO=jazzy --target dev .
 
 ARG ROS_DISTRO=jazzy
 

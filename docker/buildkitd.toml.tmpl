@@ -1,0 +1,21 @@
+# BuildKit config for the docker-container buildx builder used on self-hosted
+# ARC runners. Rendered by scripts/build_product.sh (envsubst substitutes ${HOSTIP} from
+# the runner's downward-API env) and passed via `docker buildx create
+# --buildkitd-config`. Transparently mirrors build base-image pulls to the
+# in-cluster pull-through caches.
+#
+# IMPORTANT: `http = true` must live on the MIRROR HOST's own [registry] block,
+# never on docker.io/ghcr.io — otherwise BuildKit downgrades the HTTPS upstream
+# fallback and breaks pulls when the mirror is unavailable.
+
+[registry."docker.io"]
+  mirrors = ["${HOSTIP}:31500"]
+
+[registry."ghcr.io"]
+  mirrors = ["${HOSTIP}:31501"]
+
+[registry."${HOSTIP}:31500"]
+  http = true
+
+[registry."${HOSTIP}:31501"]
+  http = true

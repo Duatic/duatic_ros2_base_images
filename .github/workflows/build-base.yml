@@ -13,7 +13,7 @@ on:
         type: boolean
         default: false
       version:
-        description: 'X.Y.Z; with push, also tags <distro>-X.Y.Z and <distro>-X.Y'
+        description: 'X.Y.Z; with push, also tags <distro>-X.Y.Z, <distro>-X.Y and <distro>-X'
         type: string
         default: ''
       runner:
@@ -54,7 +54,7 @@ jobs:
         id: base
         uses: docker/build-push-action@v7
         with:
-          file: docker/Dockerfile
+          file: docker/base.Dockerfile
           target: base
           platforms: linux/${{ matrix.arch }}
           build-args: |
@@ -68,7 +68,7 @@ jobs:
         id: dev
         uses: docker/build-push-action@v7
         with:
-          file: docker/Dockerfile
+          file: docker/base.Dockerfile
           target: dev
           platforms: linux/${{ matrix.arch }}
           build-args: |
@@ -123,7 +123,8 @@ jobs:
             repo="${REGISTRY_NS}/ros2-${target}"
             tags=(-t "${repo}:${DISTRO}")
             if [ -n "$VERSION" ]; then
-              tags+=(-t "${repo}:${DISTRO}-${VERSION}" -t "${repo}:${DISTRO}-${VERSION%.*}")
+              tags+=(-t "${repo}:${DISTRO}-${VERSION}" -t "${repo}:${DISTRO}-${VERSION%.*}"
+                    -t "${repo}:${DISTRO}-${VERSION%%.*}")
             fi
             sources=()
             for d in digests/${target}/*; do sources+=("${repo}@sha256:$(basename "$d")"); done

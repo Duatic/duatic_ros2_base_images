@@ -12,7 +12,7 @@ Any contribution to this repository will be under the BSD License.
 Titles must be conventional commits, e.g. `feat: add foo to the dev image` or `fix(dev): ...`.
 A `!` after the type marks a breaking change.
 
-Image changes should be built locally before opening a pull request, e.g. `./scripts/build.sh --ros-distro jazzy`.
+Image changes should be built locally before opening a pull request, e.g. `./scripts/build_base.sh --ros-distro jazzy`.
 
 ## Tooling
 
