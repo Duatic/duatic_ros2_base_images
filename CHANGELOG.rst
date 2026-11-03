@@ -2,6 +2,10 @@
 Changelog
 ^^^^^^^^^
 
+1.0.1 (2026-11-03)
+------------------
+* fix(factory): default the runners to ubuntu-latest (#15)
+
 1.0.0 (2026-11-03)
 ------------------
 * feat(factory)!: build product images from this repository (#13)
