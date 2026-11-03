@@ -2,6 +2,10 @@
 Changelog
 ^^^^^^^^^
 
+1.0.3 (2026-11-03)
+------------------
+* fix(factory): push the dev image straight from BuildKit (#19)
+
 1.0.2 (2026-11-03)
 ------------------
 * fix(factory): make GH_PAT optional in nightly and release workflows (#17)
