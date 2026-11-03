@@ -187,19 +187,6 @@ resolve_token() {
     fi
 }
 
-# ghcr.io uploads can hit transient network blips. `docker push` is idempotent
-# (already-uploaded layers report "Layer already exists"), so retrying is safe.
-push_with_retry() {
-    local ref="$1" attempt
-    for attempt in 1 2 3; do
-        docker push "$ref" && return 0
-        echo "push of $ref failed (attempt ${attempt}/3); retrying in $((attempt * 10))s" >&2
-        sleep $((attempt * 10))
-    done
-    echo "push of $ref failed after 3 attempts" >&2
-    return 1
-}
-
 resolve_token
 
 # Passed identically to ensure_workspace_build/build_dev/build_runtime below (like
@@ -272,10 +259,9 @@ ensure_workspace_build() {
 }
 
 # Dev image: copies the workspace's install (ensure_workspace_build) in as a prebuilt
-# underlay; falls back to a lean image if the workspace failed to compile. A lean image
-# publishes only as :<date>, so
-# :latest stays on the last build whose workspace compiled and developers pulling it are never
-# handed an image without the underlay. DUATIC_UNDERLAY (baked in as an image ENV) and the
+# underlay; falls back to a lean image if the workspace failed to compile. A lean image is
+# tagged only :<date>, so :latest stays on the last build whose workspace compiled and
+# developers pulling it are never handed an image without the underlay. DUATIC_UNDERLAY (baked in as an image ENV) and the
 # unresolved-rosdep/unresolved-deps manifests (baked in as files, already warned about
 # during the build itself by duatic-rosdep-install/duatic-install-extra-deps) are how a
 # developer checks a RUNNING container's actual state (duatic-doctor, from ros2-dev).
@@ -283,16 +269,16 @@ build_dev() {
     ensure_workspace_build
 
     local UNDERLAY_ARG=(--build-arg "DUATIC_UNDERLAY=0")
+    local TAGS=("${DEV_IMAGE}:${IMAGE_DATE}")
     if [[ "$WORKSPACE_BUILD_OK" == true ]]; then
         UNDERLAY_ARG=(--build-arg "UNDERLAY_REF=workspace" --build-arg "DUATIC_UNDERLAY=1")
+        TAGS+=("${DEV_IMAGE}:latest")
     else
         echo ">>> dev image will be LEAN for ${IMAGE_NAME}/${ROS_DISTRO} (the workspace failed to compile, no prebuilt workspace)." >&2
+        $PUSH && echo ">>> NOT moving ${DEV_IMAGE}:latest: the last good one stays." >&2
     fi
 
-    echo ">>> Building dev: ${DEV_IMAGE}:{latest,${IMAGE_DATE}} for ${IMAGE_NAME}/${ROS_DISTRO}"
-    # Always --load, then push explicitly with retry: dev publishes 20x/night (one per
-    # repository x distro cell), so it is the leg most likely to hit a transient registry
-    # blip — keep it wrapped in push_with_retry rather than a bare buildx --push.
+    echo ">>> Building dev: ${TAGS[*]} for ${IMAGE_NAME}/${ROS_DISTRO}"
     if ! docker buildx build \
         -f "$DOCKERFILE" \
         --target dev \
@@ -304,22 +290,11 @@ build_dev() {
         --build-arg "IMAGE_DATE=${IMAGE_DATE}" \
         "${PARALLEL_ARGS[@]}" \
         "${SECRET_ARG[@]}" \
-        -t "${DEV_IMAGE}:latest" \
-        -t "${DEV_IMAGE}:${IMAGE_DATE}" \
-        --load \
+        "${TAGS[@]/#/--tag=}" \
+        "${OUTPUT_ARG[@]}" \
         "$REPO_ROOT"; then
         echo ">>> dev build FAILED for ${IMAGE_NAME}/${ROS_DISTRO}" >&2
         return 1
-    fi
-
-    if $PUSH; then
-        push_with_retry "${DEV_IMAGE}:${IMAGE_DATE}"
-        if [[ "$WORKSPACE_BUILD_OK" == true ]]; then
-            push_with_retry "${DEV_IMAGE}:latest"
-        else
-            echo ">>> NOT moving ${DEV_IMAGE}:latest: this image is LEAN; the last good one stays." >&2
-            echo ">>> Lean image is still available as ${DEV_IMAGE}:${IMAGE_DATE}." >&2
-        fi
     fi
 }
 
