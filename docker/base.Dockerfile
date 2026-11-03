@@ -33,7 +33,7 @@
 #   CACHEBUST   bump to force a fresh apt-get update/upgrade
 #   IMAGE_VERSION  shown in the dev prompt and by duatic-doctor
 #
-#   docker buildx build -f docker/Dockerfile --build-arg ROS_DISTRO=jazzy --target dev .
+#   docker buildx build -f docker/base.Dockerfile --build-arg ROS_DISTRO=jazzy --target dev .
 
 ARG ROS_DISTRO=jazzy
 
@@ -98,7 +98,7 @@ RUN git config --system --add safe.directory '*'
 # Install a workspace's declared dependencies (rosdep keys, Aptfile, requirements.txt), recording
 # what could not be resolved under /etc/duatic/.
 COPY --chmod=755 scripts/rosdep_install.sh /usr/local/bin/duatic-rosdep-install
-COPY --chmod=755 scripts/install_product_deps.sh /usr/local/bin/duatic-install-product-deps
+COPY --chmod=755 scripts/install_extra_deps.sh /usr/local/bin/duatic-install-extra-deps
 
 ############################
 # dev: base + developer tooling + dev-container shell environment.
@@ -107,7 +107,7 @@ FROM base AS dev
 ARG CACHEBUST=none
 ARG IMAGE_VERSION=""
 ENV DUATIC_DEV_CONTAINER=true \
-    DUATIC_PRODUCT="" \
+    DUATIC_IMAGE_NAME="" \
     DUATIC_IMAGE_VERSION=${IMAGE_VERSION} \
     RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     CYCLONEDDS_URI=file:///etc/cyclonedds.xml \

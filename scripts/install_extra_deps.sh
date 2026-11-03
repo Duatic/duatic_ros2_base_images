@@ -27,10 +27,10 @@ set -euo pipefail
 # Install a workspace's declared extra dependencies: Aptfile (apt) + requirements.txt (pip).
 # These are packages rosdep can't express; run this after rosdep_install.sh.
 #
-#   install_product_deps.sh <src_dir> [--lenient|--strict]
+#   install_extra_deps.sh <src_dir> [--lenient|--strict]
 #
 # Scans every Aptfile/requirements.txt under <src_dir> at ANY depth (pruning
-# build/install/log/.venv/node_modules) — this is what actually covers a product: the stack
+# build/install/log/.venv/node_modules). This is what actually covers a workspace: it
 # declares its python deps per ROS PACKAGE (e.g.
 # duatic_helpers/duatic_kinematics/requirements.txt), not per repo.
 #
@@ -53,7 +53,7 @@ set -euo pipefail
 # mirroring rosdep_install.sh's /etc/duatic/unresolved-rosdep.txt (duatic-doctor reports
 # both). The manifest is TRUNCATED at the start of every run.
 #
-# NOTE: pip installs into the global venv (/opt/duatic/venv, first on PATH — see docker/Dockerfile's
+# NOTE: pip installs into the global venv (/opt/duatic/venv, first on PATH — see docker/base.Dockerfile's
 # base stage). It is created with --system-site-packages, so a requirement apt already satisfies
 # is deliberately SKIPPED rather than reinstalled: that is what keeps ROS's C-extension ABI (numpy
 # above all) intact, and what lets pip shadow a too-old apt version without having to uninstall
@@ -84,7 +84,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         -*)
-            echo "install_product_deps: unknown flag: $1" >&2
+            echo "install_extra_deps: unknown flag: $1" >&2
             exit 2
             ;;
         *)
@@ -97,7 +97,7 @@ done
 SRC="${SRC:-src}"
 
 if [[ ! -d "$SRC" ]]; then
-    echo "install_product_deps: '${SRC}' is not a directory — nothing to install."
+    echo "install_extra_deps: '${SRC}' is not a directory, nothing to install."
     exit 0
 fi
 
@@ -122,9 +122,9 @@ has_content() { grep -qvE '^[[:space:]]*(#|$)' "$1"; }
 note_failure() {
     printf '%s: %s\n' "$1" "$2" >>"$MANIFEST"
     if [[ "$LENIENT" == "1" ]]; then
-        echo "WARNING: install_product_deps: $3 (lenient mode — continuing)" >&2
+        echo "WARNING: install_extra_deps: $3 (lenient mode, continuing)" >&2
     else
-        echo "install_product_deps: $3" >&2
+        echo "install_extra_deps: $3" >&2
         FAILED=1
     fi
 }
@@ -169,7 +169,7 @@ if [[ -s "$MANIFEST" ]]; then
 fi
 
 if [[ "$FAILED" == "1" ]]; then
-    echo "install_product_deps: strict mode — dependencies incomplete." >&2
+    echo "install_extra_deps: strict mode, dependencies incomplete." >&2
     exit 1
 fi
 

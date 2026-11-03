@@ -31,15 +31,15 @@ REGISTRY_NS="${REGISTRY_NS:-ghcr.io/duatic}"
 usage() {
     cat <<'EOF'
 Usage:
-  ./scripts/build.sh [--ros-distro DISTRO] [--target base|dev|all]
-                     [--platform PLATFORMS] [--version X.Y.Z] [--cachebust STR] [--push]
+  ./scripts/build_base.sh [--ros-distro DISTRO] [--target base|dev|all]
+                          [--platform PLATFORMS] [--version X.Y.Z] [--cachebust STR] [--push]
 
 Flags:
   --ros-distro DISTRO  humble | jazzy | kilted | lyrical | rolling   (default: jazzy)
   --target TARGET      base | dev | all                              (default: all)
   --platform LIST      e.g. linux/arm64 or linux/amd64,linux/arm64   (default: native)
                        More than one platform requires --push.
-  --version X.Y.Z      also tag <distro>-X.Y.Z and <distro>-X.Y
+  --version X.Y.Z      also tag <distro>-X.Y.Z, <distro>-X.Y and <distro>-X
   --cachebust STR      force a fresh apt-get update/upgrade
   --push               push to the registry instead of loading locally
 
@@ -64,26 +64,26 @@ while [[ $# -gt 0 ]]; do
         --cachebust) CACHEBUST="$2"; shift 2 ;;
         --push) PUSH=1; shift ;;
         -h | --help) usage; exit 0 ;;
-        *) echo "build.sh: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+        *) echo "build_base.sh: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
 
 case "$ROS_DISTRO" in
     humble | jazzy | kilted | lyrical | rolling) ;;
-    *) echo "build.sh: unsupported ROS distro '$ROS_DISTRO'" >&2; exit 2 ;;
+    *) echo "build_base.sh: unsupported ROS distro '$ROS_DISTRO'" >&2; exit 2 ;;
 esac
 case "$TARGET" in
     base) targets=(base) ;;
     dev) targets=(dev) ;;
     all) targets=(base dev) ;;
-    *) echo "build.sh: unknown target '$TARGET'" >&2; exit 2 ;;
+    *) echo "build_base.sh: unknown target '$TARGET'" >&2; exit 2 ;;
 esac
 if [[ -n "$VERSION" && ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "build.sh: --version must be X.Y.Z, got '$VERSION'" >&2
+    echo "build_base.sh: --version must be X.Y.Z, got '$VERSION'" >&2
     exit 2
 fi
 if [[ "$PLATFORM" == *,* && "$PUSH" == 0 ]]; then
-    echo "build.sh: a multi-platform build cannot be loaded locally; add --push" >&2
+    echo "build_base.sh: a multi-platform build cannot be loaded locally; add --push" >&2
     exit 2
 fi
 
@@ -93,11 +93,12 @@ for target in "${targets[@]}"; do
     repo="${REGISTRY_NS}/ros2-${target}"
     tags=(-t "${repo}:${ROS_DISTRO}")
     if [[ -n "$VERSION" ]]; then
-        tags+=(-t "${repo}:${ROS_DISTRO}-${VERSION}" -t "${repo}:${ROS_DISTRO}-${VERSION%.*}")
+        tags+=(-t "${repo}:${ROS_DISTRO}-${VERSION}" -t "${repo}:${ROS_DISTRO}-${VERSION%.*}"
+                 -t "${repo}:${ROS_DISTRO}-${VERSION%%.*}")
     fi
 
     args=(
-        -f docker/Dockerfile
+        -f docker/base.Dockerfile
         --target "$target"
         --build-arg "ROS_DISTRO=${ROS_DISTRO}"
         --build-arg "CACHEBUST=${CACHEBUST}"

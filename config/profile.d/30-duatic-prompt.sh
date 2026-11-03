@@ -45,9 +45,9 @@ if command -v dircolors >/dev/null 2>&1; then
     alias egrep='egrep --color=auto'
 fi
 
-# Show command prompt with user, product, distro, and image version
+# Show command prompt with user, image name, distro, and image version
 _duatic_ctx=""
-for _duatic_seg in "${DUATIC_PRODUCT:-}" "${ROS_DISTRO:-}" "${DUATIC_IMAGE_VERSION:-}"; do
+for _duatic_seg in "${DUATIC_IMAGE_NAME:-}" "${ROS_DISTRO:-}" "${DUATIC_IMAGE_VERSION:-}"; do
     [ -n "$_duatic_seg" ] && _duatic_ctx="${_duatic_ctx:+${_duatic_ctx}-}${_duatic_seg}"
 done
 [ -z "$_duatic_ctx" ] && _duatic_ctx="\h"

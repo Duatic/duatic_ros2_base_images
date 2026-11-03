@@ -1,8 +1,8 @@
 name: Release
 
 # Dispatch opens the `release: X.Y.Z` pull request with the next CHANGELOG.rst section, the bump
-# derived from the commits unless overridden. Merging it tags vX.Y.Z, publishes the GitHub Release
-# and pushes the versioned images for every distro.
+# derived from the commits unless overridden. Merging it pushes the versioned images for every
+# distro, then tags vX.Y.Z, moves vX and publishes the GitHub Release.
 
 on:
   workflow_dispatch:
@@ -28,16 +28,9 @@ jobs:
       runner: ${{ inputs.runner }}
     secrets: inherit
 
-  tag:
-    if: github.event_name == 'pull_request' && github.event.pull_request.merged && startsWith(github.event.pull_request.title, 'release:')
-    permissions:
-      contents: write
-    uses: Duatic/ci-workflows/.github/workflows/reusable_changelog_release_tag.yml@v1
-
-  # The tag workflow has no outputs, and a tag pushed with GITHUB_TOKEN starts no workflow, so the
-  # version comes from the merged pull request's title.
+  # The version comes from the merged pull request's title: the tag job runs last.
   version:
-    needs: tag
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged && startsWith(github.event.pull_request.title, 'release:')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.parse.outputs.version }}
@@ -58,7 +51,7 @@ jobs:
       fail-fast: false
       matrix:
         ros_distro: [humble, jazzy, kilted, lyrical, rolling]
-    uses: ./.github/workflows/build.yml
+    uses: ./.github/workflows/build-base.yml
     permissions:
       contents: read
       packages: write
@@ -66,3 +59,12 @@ jobs:
       ros_distro: ${{ matrix.ros_distro }}
       push: true
       version: ${{ needs.version.outputs.version }}
+
+  # Last: a repository calling the factory at vX or vX.Y.Z builds on the base images of
+  # that release (scripts/image_env.sh), so the tags exist only once every distro is pushed. A
+  # failed distro leaves the release untagged, and vX on the previous one.
+  tag:
+    needs: publish
+    permissions:
+      contents: write
+    uses: Duatic/ci-workflows/.github/workflows/reusable_changelog_release_tag.yml@v1

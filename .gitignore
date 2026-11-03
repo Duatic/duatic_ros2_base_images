@@ -2,6 +2,7 @@
 build/
 install/
 log/
+docker/buildkitd.toml
 
 # local
 **/.env
