@@ -202,11 +202,13 @@ secrets are set, so `docker.io` pulls are rate-limited per account instead of pe
 - [`build-image.yml`](.github/workflows/build-image.yml): one `target` (`dev`, `runtime`,
   `dev,runtime` for both sharing one compile, or `ci`) for one distro. It returns the ci image
   (`target: ci`) or the release image (`target: runtime` with a `version`) as its `image`
-  output. Private repositories need the `GH_PAT` secret.
+  output.
 - [`release-image.yml`](.github/workflows/release-image.yml): see
   [Releases of workspace images](#releases-of-workspace-images).
 
-The calling repositories need Write access to their image packages in GHCR.
+The calling repositories need Write access to their image packages in GHCR. A repository whose
+workspace clones private repositories passes the `GH_PAT` secret to every workflow; without it,
+the caller's own token clones public ones only.
 
 ### Releases of workspace images
 

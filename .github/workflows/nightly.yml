@@ -35,8 +35,8 @@ on:
         type: string
     secrets:
       GH_PAT:
-        description: "GitHub token used by vcs import to clone private repositories"
-        required: true
+        description: "GitHub token used by vcs import to clone private repositories; the caller's own token when unset"
+        required: false
       DOCKERHUB_USERNAME:
         required: false
       DOCKERHUB_TOKEN:
