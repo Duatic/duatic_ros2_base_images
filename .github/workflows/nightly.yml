@@ -29,7 +29,7 @@ on:
         default: false
         type: boolean
       runner:
-        description: "Runner label(s) for the jobs, e.g. self-hosted for the in-cluster registry mirrors"
+        description: "Runner label(s) for the jobs"
         required: false
         default: "ubuntu-latest"
         type: string

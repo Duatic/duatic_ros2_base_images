@@ -34,7 +34,7 @@ on:
         required: true
         type: string
       runner:
-        description: "Runner label(s) for both jobs, e.g. self-hosted for the in-cluster registry mirrors"
+        description: "Runner label(s) for both jobs"
         required: false
         default: "ubuntu-latest"
         type: string

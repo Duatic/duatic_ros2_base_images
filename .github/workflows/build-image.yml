@@ -34,7 +34,7 @@ on:
         default: ""
         type: string
       runner:
-        description: "Runner label(s) for the build job, e.g. self-hosted for the in-cluster registry mirrors"
+        description: "Runner label(s) for the build job"
         required: false
         default: "ubuntu-latest"
         type: string
