@@ -2,6 +2,10 @@
 Changelog
 ^^^^^^^^^
 
+1.0.2 (2026-11-03)
+------------------
+* fix(factory): make GH_PAT optional in nightly and release workflows (#17)
+
 1.0.1 (2026-11-03)
 ------------------
 * fix(factory): default the runners to ubuntu-latest (#15)
