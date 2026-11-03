@@ -219,7 +219,8 @@ release is a deliberate act, separate from the nightly.
 
 ### Self-hosted runners
 
-Workspace image builds run on self-hosted ARC runners, which host in-cluster pull-through registry
+The workflows run on `ubuntu-latest` unless the caller passes another `runner`. Duatic's
+self-hosted ARC runners (`runner: self-hosted`) host in-cluster pull-through registry
 mirrors. When `$HOSTIP` (the node IP, from the Kubernetes downward API) is set,
 `build_workspace.sh` renders [`docker/buildkitd.toml.tmpl`](docker/buildkitd.toml.tmpl) with it and
 builds on a `docker-container` builder that pulls `docker.io` and `ghcr.io` through those

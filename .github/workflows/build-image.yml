@@ -34,9 +34,9 @@ on:
         default: ""
         type: string
       runner:
-        description: "Runner label(s) for the build job"
+        description: "Runner label(s) for the build job, e.g. self-hosted for the in-cluster registry mirrors"
         required: false
-        default: "self-hosted"
+        default: "ubuntu-latest"
         type: string
     secrets:
       GH_PAT:
