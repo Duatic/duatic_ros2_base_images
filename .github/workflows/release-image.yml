@@ -14,6 +14,9 @@ name: Release runtime image
 #   - a GitHub Release on that tag carrying the exact source pin (sources.lock.repos) and a
 #     snapshot of what's actually installed (packages.txt, pip-freeze.txt, ros2-pkg-list.txt)
 #
+# The image is built by build-image.yml, like every other image; the release job only reads
+# the pushed image back from the registry.
+#
 # Reproducing this exact build later (e.g. to rebuild on a patched base image without
 # touching product source): pull the image, extract /etc/duatic/sources.lock.repos (or grab
 # it from the release assets), and pass it back in as
@@ -31,7 +34,7 @@ on:
         required: true
         type: string
       runner:
-        description: "Runner label(s) for the release job. It needs the self-hosted runners' disk and registry mirror."
+        description: "Runner label(s) for both jobs. The build needs the self-hosted runners' disk and registry mirror."
         required: false
         default: "self-hosted"
         type: string
@@ -51,51 +54,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: ${{ inputs.runner }}
-    timeout-minutes: 90
-    env:
+  build:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-image.yml
+    with:
+      ros_distro: ${{ inputs.ros_distro }}
+      target: runtime
+      version: ${{ inputs.version }}
+      publish: true
+      runner: ${{ inputs.runner }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  release:
+    needs: build
+    runs-on: ${{ inputs.runner }}
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
       TAG: release/${{ inputs.ros_distro }}/${{ inputs.version }}
     permissions:
       contents: write
-      packages: write
+      packages: read
     steps:
-      # Not persisted: the checkout's .git goes into the image's build stages. build_product.sh
-      # names the repository after the checkout's origin remote, not after this path.
-      - name: Checkout the repository
-        uses: actions/checkout@v7
-        with:
-          path: caller
-          persist-credentials: false
-
-      # The checkout above takes the calling repository. job.workflow_ref names this file's
-      # own repository and revision, so a caller pinning this workflow pins the factory and,
-      # through FACTORY_REF, the base images it builds on.
-      - name: Resolve this workflow's own revision
-        id: self
-        env:
-          WORKFLOW_REF: ${{ job.workflow_ref }}
-        run: |
-          [ -n "$WORKFLOW_REF" ] || { echo "::error::job.workflow_ref is empty"; exit 1; }
-          echo "repo=${WORKFLOW_REF%%/.github/*}" >> "$GITHUB_OUTPUT"
-          # Also read by scripts/image_env.sh: picks the ros2-base / ros2-dev release to build on.
-          echo "FACTORY_REF=${WORKFLOW_REF#*@}" >> "$GITHUB_ENV"
-
-      - name: Checkout the factory
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ steps.self.outputs.repo }}
-          ref: ${{ env.FACTORY_REF }}
-          path: factory
-
-      - name: Log in to Docker Hub
-        if: ${{ env.DOCKERHUB_USERNAME != '' }}
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -103,39 +87,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Name the runtime image
-        run: |
-          # shellcheck source=/dev/null
-          source factory/scripts/image_env.sh
-          image_env_resolve "${GITHUB_REPOSITORY#*/}" "${{ inputs.ros_distro }}"
-          echo "IMAGE=$RUNTIME_REPO" >> "$GITHUB_ENV"
-          echo "PRODUCT=$PRODUCT" >> "$GITHUB_ENV"
-
-      - name: Build and push the release image
-        env:
-          GIT_AUTH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          ./factory/scripts/build_product.sh \
-            --source caller \
-            --ros-distro "${{ inputs.ros_distro }}" \
-            --target runtime \
-            --version "${{ inputs.version }}" \
-            --push
-
-      - name: Pull the just-published image (for artifact extraction)
-        run: docker pull "${IMAGE}:${{ inputs.version }}"
-
       - name: Collect release artifacts
         run: |
           set -euo pipefail
-          ref="${IMAGE}:${{ inputs.version }}"
-          docker run --rm "$ref" cat /etc/duatic/sources.lock.repos > sources.lock.repos
-          docker run --rm "$ref" dpkg -l > packages.txt
-          docker run --rm "$ref" pip3 freeze > pip-freeze.txt
-          docker run --rm "$ref" bash -c \
+          docker pull "$IMAGE"
+          docker run --rm "$IMAGE" cat /etc/duatic/sources.lock.repos > sources.lock.repos
+          docker run --rm "$IMAGE" dpkg -l > packages.txt
+          docker run --rm "$IMAGE" pip3 freeze > pip-freeze.txt
+          docker run --rm "$IMAGE" bash -c \
             'source /opt/ros/$ROS_DISTRO/setup.bash && source /opt/duatic/ws/install/setup.bash && ros2 pkg list' \
             > ros2-pkg-list.txt
-          docker image inspect "$ref" --format '{{index .RepoDigests 0}}' > digest.txt
+          docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}' > digest.txt
           echo "Digest: $(cat digest.txt)"
 
       # Tags the released revision of the calling repository.
@@ -144,13 +106,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "${PRODUCT}/${{ inputs.ros_distro }} ${{ inputs.version }}" \
+            --title "${IMAGE#ghcr.io/duatic/}" \
             --notes "$(cat <<EOF
-          Runtime image: \`${IMAGE}:${{ inputs.version }}\` (also tagged \`:stable\`)
+          Runtime image: \`${IMAGE}\` (also tagged \`:stable\`)
           Digest: $(cat digest.txt)
           Built from \`${GITHUB_REPOSITORY}\`@\`${GITHUB_SHA}\`
 
-          Robots pin to \`${IMAGE}:${{ inputs.version }}\` directly, or track \`${IMAGE}:stable\`.
+          Robots pin to \`${IMAGE}\` directly, or track \`${IMAGE%:*}:stable\`.
           Reproduce this exact build: extract \`sources.lock.repos\` below and pass it to
           \`docker buildx build --target runtime --build-context sourceslock=<dir>\`
           (see https://github.com/Duatic/duatic_ros2_base_images#releases-of-product-images).

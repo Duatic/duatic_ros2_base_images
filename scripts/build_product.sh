@@ -318,6 +318,7 @@ build_dev() {
 # Nightly publishes :edge + :<date> — NOT :latest. A robot pulling :edge knows it's
 # whatever main happened to build most recently, no vetting; :latest/:stable are reserved
 # for release-image.yml's deliberately-promoted, immutable :<version> tags (customer robots).
+# A pushed release build sets RELEASE_IMAGE to the :<version> reference.
 build_runtime() {
     ensure_product_build
 
@@ -366,6 +367,7 @@ build_runtime() {
     if [[ -n "$VERSION_FLAG" ]] && $PUSH; then
         echo ">>> Promoting ${RUNTIME_REPO}:stable -> ${VERSION_FLAG}"
         docker buildx imagetools create -t "${RUNTIME_REPO}:stable" "${RUNTIME_REPO}:${VERSION_FLAG}"
+        RELEASE_IMAGE="${RUNTIME_REPO}:${VERSION_FLAG}"
     fi
 }
 
@@ -395,11 +397,11 @@ setup_cache
 
 if [[ "$TARGET" == ci ]]; then
     build_ci
-    [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "ci_image=$CI_IMAGE" >> "$GITHUB_OUTPUT"
+    [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "image=$CI_IMAGE" >> "$GITHUB_OUTPUT"
     exit 0
 fi
 
-DEV_RESULT="" RUNTIME_RESULT=""
+DEV_RESULT="" RUNTIME_RESULT="" RELEASE_IMAGE=""
 
 # Each stage's result is captured independently
 if [[ "$TARGET" == "dev" || "$TARGET" == "product" || "$TARGET" == "all" ]]; then
@@ -412,6 +414,7 @@ fi
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     [[ -n "$DEV_RESULT" ]] && echo "dev_result=$DEV_RESULT" >> "$GITHUB_OUTPUT"
     [[ -n "$RUNTIME_RESULT" ]] && echo "runtime_result=$RUNTIME_RESULT" >> "$GITHUB_OUTPUT"
+    [[ -n "$RELEASE_IMAGE" ]] && echo "image=$RELEASE_IMAGE" >> "$GITHUB_OUTPUT"
 fi
 
 echo "Done."

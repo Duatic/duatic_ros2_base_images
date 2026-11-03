@@ -1,9 +1,9 @@
 name: Build image (reusable)
 
 # Reusable workflow: build (and optionally publish) one image target of the calling repository
-# for a single ROS distro: dev, runtime, product (dev+runtime together, what nightly.yml uses),
-# or ci (the repository's workspace without the repository, which ci-workflows builds and tests
-# on). See README.md for the architecture (stage graph, strict-vs-lenient dependency gate,
+# for a single ROS distro: dev, runtime (with a version, what release-image.yml uses), product
+# (dev+runtime together, what nightly.yml uses), or ci (the repository's workspace without the
+# repository, which ci-workflows builds and tests on). See README.md for the architecture (stage graph, strict-vs-lenient dependency gate,
 # dev's lean fallback).
 
 on:
@@ -28,6 +28,11 @@ on:
         required: false
         default: false
         type: boolean
+      version:
+        description: "Release version (target runtime only): tags :<version> instead of :edge/:<date>, refuses an existing one, and with publish moves :stable to it"
+        required: false
+        default: ""
+        type: string
       runner:
         description: "Runner label(s) for the build job"
         required: false
@@ -45,7 +50,7 @@ on:
         required: false
     outputs:
       image:
-        description: "Reference of the ci image (target ci)"
+        description: "Reference of the ci image (target ci) or the release image (target runtime with version)"
         value: ${{ jobs.build.outputs.image }}
 
 jobs:
@@ -53,7 +58,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 90
     outputs:
-      image: ${{ steps.build.outputs.ci_image }}
+      image: ${{ steps.build.outputs.image }}
     env:
       # Surfaced as env because the `secrets` context can't be read in a step-level `if`.
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -114,10 +119,14 @@ jobs:
         env:
           GIT_AUTH_TOKEN: ${{ secrets.GH_PAT || github.token }}
           IMAGE_DATE: ${{ inputs.image_date }}
+          VERSION: ${{ inputs.version }}
         run: |
           ARGS=(--source caller --ros-distro "${{ inputs.ros_distro }}" --target "${{ inputs.target }}")
           if [ "${{ inputs.publish }}" = "true" ]; then
             ARGS+=(--push)
+          fi
+          if [ -n "$VERSION" ]; then
+            ARGS+=(--version "$VERSION")
           fi
           ./factory/scripts/build_product.sh "${ARGS[@]}"
 

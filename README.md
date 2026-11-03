@@ -200,8 +200,9 @@ secrets are set, so `docker.io` pulls are rate-limited per account instead of pe
       secrets: inherit
   ```
 - [`build-image.yml`](.github/workflows/build-image.yml): one `target` (`dev`, `runtime`,
-  `product` for dev and runtime together, or `ci`) for one distro. With `target: ci` it returns
-  the ci image as its `image` output. Private repositories need the `GH_PAT` secret.
+  `product` for dev and runtime together, or `ci`) for one distro. It returns the ci image
+  (`target: ci`) or the release image (`target: runtime` with a `version`) as its `image`
+  output. Private repositories need the `GH_PAT` secret.
 - [`release-image.yml`](.github/workflows/release-image.yml): see
   [Releases of product images](#releases-of-product-images).
 
@@ -209,9 +210,9 @@ The product repositories need Write access to their image packages in GHCR.
 
 ### Releases of product images
 
-`release-image.yml` (inputs `ros_distro`, `version`) builds `runtime` from the revision the
-calling repository runs on, refuses to run if `<image>:<version>` already exists, pushes it,
-moves `:stable` to it, tags the caller `release/<distro>/<version>`, and attaches
+`release-image.yml` (inputs `ros_distro`, `version`) builds `runtime` through `build-image.yml`
+from the revision the calling repository runs on, refuses to run if `<image>:<version>` already
+exists, pushes it, moves `:stable` to it, tags the caller `release/<distro>/<version>`, and attaches
 `sources.lock.repos` and a snapshot of what got installed (`dpkg -l`, `pip freeze`,
 `ros2 pkg list`) to a GitHub Release on that tag. A product repository dispatches it by hand: a
 release is a deliberate act, separate from the nightly.
