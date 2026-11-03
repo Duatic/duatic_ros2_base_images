@@ -41,7 +41,7 @@ on:
     secrets:
       GH_PAT:
         description: "GitHub token used by vcs import to clone private repositories"
-        required: true
+        required: false
       DOCKERHUB_USERNAME:
         required: false
       DOCKERHUB_TOKEN:
