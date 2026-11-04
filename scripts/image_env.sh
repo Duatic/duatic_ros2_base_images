@@ -7,7 +7,7 @@
 # Inputs (env var takes precedence over default):
 #   ROS_DISTRO   any distro docker/base.Dockerfile builds (default: jazzy);
 #                not validated against a fixed list here
-#   IMAGE_DATE   immutable date tag          (default: today in Zurich, YYYY-MM-DD)
+#   IMAGE_DATE   immutable date tag                        (default: today, YYYY-MM-DD)
 #   FACTORY_REF  the git ref of this repository the factory runs from, as job.workflow_ref
 #                names it (refs/tags/v1, refs/tags/v1.2.3, refs/heads/main, ...); unset for
 #                a local build. Selects the ros2-base / ros2-dev release to build on.
@@ -67,7 +67,7 @@ image_env_resolve() { # <repository> <distro>
     SOURCE_REPO="$1"
     IMAGE_NAME="${SOURCE_REPO#duatic_}"
     ROS_DISTRO="${2:-${ROS_DISTRO:-jazzy}}"
-    IMAGE_DATE="${IMAGE_DATE:-$(TZ=Europe/Zurich date +%Y-%m-%d)}"
+    IMAGE_DATE="${IMAGE_DATE:-$(date +%Y-%m-%d)}"
     if [[ -z "${ROS2_BASE_IMAGE:-}" || -z "${ROS2_DEV_IMAGE:-}" ]]; then
         local base_tag
         base_tag=$(image_env_base_tag "${FACTORY_REF:-}" "$ROS_DISTRO") || return 1
