@@ -61,7 +61,7 @@ jobs:
           IN_DISTRO: ${{ inputs.ros_distro }}
           DEFAULT_DISTROS: ${{ env.DEFAULT_DISTROS }}
         run: |
-          # Add date for image tags (e.g. ghcr.io/duatic/<name>/<distro>-dev:<date>).
+          # Add date for image tags (e.g. ghcr.io/duatic/<name>-dev:<distro>-<date>).
           echo "image_date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
           # Split on commas, strip whitespace, drop empties -> a JSON array of distros.

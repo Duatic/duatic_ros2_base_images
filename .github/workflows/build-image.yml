@@ -29,7 +29,7 @@ on:
         default: false
         type: boolean
       version:
-        description: "Release version (target runtime only): tags :<version> instead of :edge/:<date>, refuses an existing one, and with publish moves :stable to it"
+        description: "Release version (target runtime only): tags :<distro>-<version> instead of the nightly tags, refuses an existing one, and with publish moves :<distro> to it"
         required: false
         default: ""
         type: string
