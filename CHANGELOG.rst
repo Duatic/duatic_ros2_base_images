@@ -2,6 +2,11 @@
 Changelog
 ^^^^^^^^^
 
+1.2.0 (2026-11-04)
+------------------
+* feat(factory): share a keyed ci layer between CI, nightly and dev (#26)
+* feat(factory): release the dev image with the runtime image (#25)
+
 1.1.0 (2026-11-04)
 ------------------
 * feat(factory): name workspace images for customers (#23)
