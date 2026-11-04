@@ -29,7 +29,7 @@ on:
         default: false
         type: boolean
       version:
-        description: "Release version (target runtime only): tags :<distro>-<version> instead of the nightly tags, refuses an existing one, and with publish moves :<distro> to it"
+        description: "Release version (target runtime or dev,runtime): tags each image :<distro>-<version> instead of the nightly tags, refuses an existing one, and with publish moves :<distro> to it"
         required: false
         default: ""
         type: string
@@ -52,6 +52,9 @@ on:
       image:
         description: "Reference of the ci image (target ci) or the release image (target runtime with version)"
         value: ${{ jobs.build.outputs.image }}
+      dev_image:
+        description: "Reference of the release dev image (target dev,runtime with version)"
+        value: ${{ jobs.build.outputs.dev_image }}
 
 jobs:
   build:
@@ -59,6 +62,7 @@ jobs:
     timeout-minutes: 90
     outputs:
       image: ${{ steps.build.outputs.image }}
+      dev_image: ${{ steps.build.outputs.dev_image }}
     env:
       # Surfaced as env because the `secrets` context can't be read in a step-level `if`.
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -131,7 +135,7 @@ jobs:
           ./factory/scripts/build_workspace.sh "${ARGS[@]}"
 
       - name: Write dev/runtime badge artifact
-        if: ${{ always() && inputs.publish && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
+        if: ${{ always() && inputs.publish && !inputs.version && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -151,7 +155,7 @@ jobs:
           render runtime "${{ steps.build.outputs.runtime_result }}"
 
       - name: Upload dev/runtime badge artifact
-        if: ${{ always() && inputs.publish && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
+        if: ${{ always() && inputs.publish && !inputs.version && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
         uses: actions/upload-artifact@v7
         with:
           name: badge-${{ inputs.ros_distro }}

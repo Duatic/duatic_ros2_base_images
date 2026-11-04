@@ -1,21 +1,24 @@
-name: Release runtime image
+name: Release images
 
 # Reusable workflow: cuts an immutable, versioned runtime image of the calling repository for
-# CUSTOMER robots, from the revision the caller runs on. Callers trigger it manually only: a
-# release is a deliberate act, not a nightly side effect. See README.md for the
+# CUSTOMER robots, and the matching dev image, from the revision the caller runs on. Callers
+# trigger it manually only: a release is a deliberate act, not a nightly side effect. See
+# README.md for the
 # full image-set/tag design (:<distro>-nightly/:<distro>-<date> nightly vs. :<distro>-<version>
 # and :<distro> release) and scripts/build_workspace.sh --help for what --version actually does
 # (immutability guard, tagging, :<distro> promotion).
 #
 # What this produces, given e.g. a call from duatic_dxtr with ros_distro=jazzy, version=1.0.0:
-#   - ghcr.io/duatic/dxtr:jazzy-1.0.0   (immutable, refuses to overwrite)
-#   - ghcr.io/duatic/dxtr:jazzy         (moved to point at jazzy-1.0.0)
+#   - ghcr.io/duatic/dxtr:jazzy-1.0.0       (immutable, refuses to overwrite)
+#   - ghcr.io/duatic/dxtr:jazzy             (moved to point at jazzy-1.0.0)
+#   - ghcr.io/duatic/dxtr-dev:jazzy-1.0.0   (immutable, the matching development image)
+#   - ghcr.io/duatic/dxtr-dev:jazzy         (moved to it, until the next nightly moves it on)
 #   - git tag release/jazzy/1.0.0 on the calling repository
 #   - a GitHub Release on that tag carrying the exact source pin (sources.lock.repos) and a
 #     snapshot of what's actually installed (packages.txt, pip-freeze.txt, ros2-pkg-list.txt)
 #
-# The image is built by build-image.yml, like every other image; the release job only reads
-# the pushed image back from the registry.
+# The images are built by build-image.yml, like every other image, from one compile of the
+# workspace; the release job only reads the pushed runtime image back from the registry.
 #
 # Reproducing this exact build later (e.g. to rebuild on a patched base image without
 # touching the repository's source): pull the image, extract /etc/duatic/sources.lock.repos (or grab
@@ -61,7 +64,7 @@ jobs:
     uses: ./.github/workflows/build-image.yml
     with:
       ros_distro: ${{ inputs.ros_distro }}
-      target: runtime
+      target: dev,runtime
       version: ${{ inputs.version }}
       publish: true
       runner: ${{ inputs.runner }}
@@ -75,6 +78,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     env:
       IMAGE: ${{ needs.build.outputs.image }}
+      DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
       DISTRO: ${{ inputs.ros_distro }}
       TAG: release/${{ inputs.ros_distro }}/${{ inputs.version }}
     permissions:
@@ -105,6 +109,7 @@ jobs:
           cat > notes.md <<EOF
           Runtime image: \`${IMAGE}\` (also tagged \`:${DISTRO}\`)
           Digest: $(cat digest.txt)
+          Development image: \`${DEV_IMAGE}\`, the same workspace with the developer tooling
           Built from \`${GITHUB_REPOSITORY}\`@\`${GITHUB_SHA}\`
 
           Robots pin to \`${IMAGE}\` directly, or track the latest release, \`${IMAGE%:*}:${DISTRO}\`.
