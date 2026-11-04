@@ -15,7 +15,7 @@ Build the dev / runtime / ci image of a repository checkout for one ROS distro.
 Usage:
   ./scripts/build_workspace.sh --source DIR [--ros-distro DISTRO]
                                [--target dev,runtime|dev|runtime|ci]
-                               [--push] [--cachebust STR]
+                               [--push] [--cachebust STR] [--sources-lock FILE]
 
 The checkout roots the workspace: its repos.list collects the other repositories, and its
 packages and dependency manifests go in. The repository is named after the checkout's origin
@@ -31,12 +31,16 @@ Flags:
   --push                 push to ghcr.io (default: only load into the local docker
                          image store)
   --cachebust STR        forces a fresh source clone and a fresh apt-get update/upgrade
-                         in workspace/dev                               (default: IMAGE_DATE)
-  --version VERSION      RELEASE build (--target runtime or dev,runtime): tags each image
+                         in ci/dev, and a new ci key                    (default: IMAGE_DATE)
+  --version VERSION      RELEASE build (--target runtime or dev,runtime): builds everything
+                         from scratch, never reusing a ci image; tags each image
                          :<distro>-VERSION instead of the nightly tags and moves its
                          :<distro> to it, refuses to build if a VERSION tag already exists
                          (release tags are immutable), and builds dev only once runtime
                          passed. Used by release-image.yml.
+  --sources-lock FILE    rebuild from the sources.lock.repos of an earlier image instead of
+                         the branches repos.list names; --source must be the root at the
+                         commit FILE names
   --parallel-workers N   colcon packages compiled concurrently          (default: 4)
   --inner-jobs N         make jobs inside each package                  (default: 1)
                          Concurrent compilers is the product of the two; size it against
@@ -62,23 +66,30 @@ Targets:
           runtime outright here, whether or not dev fell back. Robots never ship
           incomplete. Nightly publishes :<distro>-nightly; :<distro> is reserved for the
           latest release (release-image.yml).
-  ci      the workspace the checkout roots (everything its repos.list collects and every
-          dependency, behind the strict gate), without the repository itself: CI builds and
-          tests the checkout on top. Tagged with the checkout's commit. Built on its own.
+  ci      every dependency of the workspace and the upstream repositories compiled (everything
+          its repos.list collects), without the repository itself: CI builds and tests the
+          checkout on top, and dev and runtime compile it in. Lenient: CI and runtime gate on
+          its unresolved dependencies. Built on its own as a target.
 
-ensure_workspace_build() compiles the workspace once per script invocation, at /opt/duatic/ws
-(Dockerfile target `workspace`), into BuildKit's cache only: it is an internal stage, not
-one of the published images. build_dev() and build_runtime() both call it; the first call
-does the work and the second reuses the cached stage, so `--target dev,runtime` (what the
-nightly uses) compiles the workspace once. Two separate `--target dev` / `--target runtime`
-runs, e.g. in separate CI jobs, do NOT share it.
+The repository set is resolved first: every branch repos.list names, recursively, is pinned to
+its commit (scripts/expand_repos.py). The ci image is keyed on everything it is built from:
+the cachebust day, the factory commit, the ros2-base digest, the distro, the pinned upstream
+repositories and the checkout's package.xml, Aptfile and requirements.txt files. When an
+image with that key is published, every target reuses it instead of building it; a pushed
+build that had to build it publishes it for the next. A release never reuses one.
+
+ensure_workspace_build() compiles the checkout on top of ci once per script invocation, at
+/opt/duatic/ws (Dockerfile target `workspace`), into BuildKit's cache only: it is an internal
+stage, not one of the published images. build_dev() and build_runtime() both call it; the
+first call does the work and the second reuses the cached stage, so `--target dev,runtime`
+(what the nightly uses) compiles the checkout once.
 
 Tags produced per target, e.g. for duatic_dynaarm on jazzy:
   runtime:  dynaarm:jazzy-nightly     and  dynaarm:jazzy-<IMAGE_DATE>      (nightly)
             dynaarm:jazzy-<VERSION>   and moves dynaarm:jazzy             (release-image.yml only)
   dev:      dynaarm-dev:jazzy         and  dynaarm-dev:jazzy-<IMAGE_DATE>  (nightly)
             dynaarm-dev:jazzy-<VERSION> and  dynaarm-dev:jazzy             (release-image.yml only)
-  ci:       dynaarm-ci:jazzy-<commit of the checkout>
+  ci:       dynaarm-ci:jazzy-<key>
 EOF
 }
 
@@ -94,6 +105,7 @@ VERSION_FLAG=""
 PARALLEL_WORKERS_FLAG=""
 INNER_JOBS_FLAG=""
 SOURCE_FLAG=""
+SOURCES_LOCK_FLAG=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -112,6 +124,8 @@ while [[ $# -gt 0 ]]; do
         --inner-jobs=*) INNER_JOBS_FLAG="${1#*=}"; shift ;;
         --source) SOURCE_FLAG="$2"; shift 2 ;;
         --source=*) SOURCE_FLAG="${1#*=}"; shift ;;
+        --sources-lock) SOURCES_LOCK_FLAG="$2"; shift 2 ;;
+        --sources-lock=*) SOURCES_LOCK_FLAG="${1#*=}"; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
@@ -154,11 +168,10 @@ image_env_resolve "$(basename "$ORIGIN_URL" .git)" "$DISTRO_FLAG"
 OUTPUT_ARG=(--load)
 $PUSH && OUTPUT_ARG=(--push)
 
-# Shared by workspace/dev: bumped daily by CI so the nightly apt-get
-# upgrade/clone layers actually re-run instead of caching forever on the self-hosted
-# runners. A ci build bumps it per run, so every run sees the current upstream heads.
+# Shared by every stage and part of the ci key: the day, so the apt-get upgrade and clone
+# layers re-run daily instead of caching forever, and a ci image is reused for one day at most.
+# Upstream commits need no bump: the pinned set is part of the key.
 CACHEBUST="${CACHEBUST_FLAG:-$IMAGE_DATE}"
-$BUILD_CI && [[ -z "$CACHEBUST_FLAG" ]] && CACHEBUST="ci-$(date +%s%N)"
 
 # Concurrent compilers is the product of the two. See the workspace stage in docker/workspace.Dockerfile.
 PARALLEL_WORKERS="${PARALLEL_WORKERS_FLAG:-${PARALLEL_WORKERS:-4}}"
@@ -194,8 +207,12 @@ resolve_token
 # CACHEBUST) so their build-args match and BuildKit's cache actually hits across the
 # separate `docker buildx build` invocations instead of silently recompiling the workspace
 # under a different source or parent image.
+SOURCE_COMMIT=$(git -C "$SOURCE_DIR" rev-parse HEAD)
+SOURCE_BRANCH=$(git -C "$SOURCE_DIR" symbolic-ref -q --short HEAD || echo "$SOURCE_COMMIT")
 SOURCE_ARGS=(--build-context "source=${SOURCE_DIR}"
-             --build-arg "SOURCE_REPO=${SOURCE_REPO}")
+             --build-arg "SOURCE_REPO=${SOURCE_REPO}"
+             --build-arg "SOURCE_COMMIT=${SOURCE_COMMIT}"
+             --build-arg "SOURCE_BRANCH=${SOURCE_BRANCH}")
 PARENT_ARGS=(--build-arg "ROS2_BASE_IMAGE=${ROS2_BASE_IMAGE}"
              --build-arg "ROS2_DEV_IMAGE=${ROS2_DEV_IMAGE}")
 echo ">>> Public parents: ${ROS2_BASE_IMAGE}, ${ROS2_DEV_IMAGE}"
@@ -230,7 +247,96 @@ setup_cache() {
     echo ">>> In-cluster registry mirrors active at ${HOSTIP} (base-image pulls)."
 }
 
-# Compile the full workspace once per script invocation (Dockerfile target `workspace`).
+# Pin the repository set (Dockerfile target lock, see its resolve stage) and pass it to every
+# later build as the lock context, so they all build exactly the commits the ci key names.
+# Sets LOCK_DIR.
+resolve_lock() {
+    LOCK_DIR=$(mktemp -d)
+    trap 'rm -rf "$LOCK_DIR"' EXIT
+    local lock_args=()
+    if [[ -n "$SOURCES_LOCK_FLAG" ]]; then
+        mkdir "${LOCK_DIR}/given"
+        cp "$SOURCES_LOCK_FLAG" "${LOCK_DIR}/given/sources.lock.repos"
+        lock_args=(--build-context "sourceslock=${LOCK_DIR}/given")
+    fi
+    echo ">>> Resolving the repository set of ${IMAGE_NAME}/${ROS_DISTRO}"
+    docker buildx build \
+        -f "$DOCKERFILE" \
+        --target lock \
+        --no-cache-filter resolve \
+        "${PARENT_ARGS[@]}" \
+        "${SOURCE_ARGS[@]}" \
+        "${lock_args[@]}" \
+        --build-arg "CACHEBUST=${CACHEBUST}" \
+        "${SECRET_ARG[@]}" \
+        --output "type=local,dest=${LOCK_DIR}" \
+        "$REPO_ROOT"
+    SOURCE_ARGS+=(--build-context "lock=${LOCK_DIR}")
+}
+
+# Print the ci key: a digest of everything the ci image is built from (see --help).
+ci_key() {
+    # The factory files the ci stage reads, so a commit elsewhere (docs, workflows) keeps the key.
+    local paths=(docker scripts config) factory base
+    factory=$(git -C "$REPO_ROOT" rev-parse "${paths[@]/#/HEAD:}" 2>/dev/null) ||
+        factory="unversioned $(date +%s%N)"
+    # Uncommitted changes to them key on their content, so a local edit never reuses an image.
+    if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -- "${paths[@]}" 2>/dev/null)" ]]; then
+        factory+=" $({ git -C "$REPO_ROOT" status --porcelain -- "${paths[@]}"
+            git -C "$REPO_ROOT" diff HEAD -- "${paths[@]}"; } | sha256sum)"
+    fi
+    base=$(docker buildx imagetools inspect "$ROS2_BASE_IMAGE" --format '{{.Manifest.Digest}}')
+    {
+        printf '%s\n' "cachebust ${CACHEBUST}" "factory ${factory}" "base ${base}" "distro ${ROS_DISTRO}"
+        cat "${LOCK_DIR}/upstream.repos"
+        "${SCRIPT_DIR}/duatic_deps.sh" --list "$SOURCE_DIR"
+    } | sha256sum | cut -c1-16
+}
+
+# The ci image every other target builds on, once per script invocation (Dockerfile target
+# ci): reused when an image with this run's key is published, built otherwise. A pushed
+# non-release build publishes what it built under the key; a release never reuses one and
+# keeps its own in BuildKit's cache. On reuse, every later build's ci stage is the published
+# image. Sets CI_REF, and CI_OK (true/false, never unset after the first call).
+CI_OK=""
+ensure_ci() {
+    [[ -n "$CI_OK" ]] && return 0
+    local output=(--output type=cacheonly)
+    if [[ -n "$VERSION_FLAG" ]]; then
+        CI_REF="the release's own (not published)"
+    else
+        CI_REF="${CI_IMAGE}:${ROS_DISTRO}-$(ci_key)"
+        if docker manifest inspect "$CI_REF" >/dev/null 2>&1; then
+            echo ">>> Reusing ${CI_REF}: nothing it is built from changed."
+            SOURCE_ARGS+=(--build-context "ci=docker-image://${CI_REF}")
+            CI_OK=true
+            return 0
+        fi
+        # Published as a single manifest without provenance: each key is then one package
+        # version, which the nightly's pruning deletes whole, with no attestation manifests left.
+        if $BUILD_CI || $PUSH; then
+            output=("${OUTPUT_ARG[@]}" --provenance=false --tag "$CI_REF")
+        fi
+    fi
+    echo ">>> Building ci: ${CI_REF}"
+    if docker buildx build \
+        -f "$DOCKERFILE" \
+        --target ci \
+        "${PARENT_ARGS[@]}" \
+        "${SOURCE_ARGS[@]}" \
+        --build-arg "CACHEBUST=${CACHEBUST}" \
+        "${PARALLEL_ARGS[@]}" \
+        "${SECRET_ARG[@]}" \
+        "${output[@]}" \
+        "$REPO_ROOT"; then
+        CI_OK=true
+    else
+        CI_OK=false
+        echo ">>> ci build FAILED for ${IMAGE_NAME}/${ROS_DISTRO}." >&2
+    fi
+}
+
+# Compile the checkout on top of ci once per script invocation (Dockerfile target `workspace`).
 # Memoized via WORKSPACE_BUILD_OK so build_dev() and build_runtime() calling it in the same
 # run (--target dev,runtime) share one compile. Sets WORKSPACE_BUILD_OK
 # (true/false, never unset after the first call).
@@ -239,6 +345,13 @@ setup_cache() {
 WORKSPACE_BUILD_OK=""
 ensure_workspace_build() {
     [[ -n "$WORKSPACE_BUILD_OK" ]] && return 0   # already attempted this run
+
+    ensure_ci
+    if [[ "$CI_OK" != true ]]; then
+        WORKSPACE_BUILD_OK=false
+        echo ">>> dev will fall back to a LEAN image (DUATIC_UNDERLAY=0); runtime cannot be built." >&2
+        return 0
+    fi
 
     echo ">>> Building the workspace (target workspace): ${IMAGE_NAME}/${ROS_DISTRO}"
     if docker buildx build \
@@ -355,39 +468,11 @@ build_runtime() {
     fi
 }
 
-# CI image: the checkout's workspace without the checkout, tagged with its commit. Sets
-# CI_REF to its reference.
-build_ci() {
-    CI_REF="${CI_IMAGE}:${ROS_DISTRO}-$(git -C "$SOURCE_DIR" rev-parse HEAD)"
-    echo ">>> Building ci: ${CI_REF}"
-    if ! docker buildx build \
-        -f "$DOCKERFILE" \
-        --target ci \
-        "${PARENT_ARGS[@]}" \
-        "${SOURCE_ARGS[@]}" \
-        --build-arg "COMPILE_SOURCE=0" \
-        --build-arg "CACHEBUST=${CACHEBUST}" \
-        "${PARALLEL_ARGS[@]}" \
-        "${SECRET_ARG[@]}" \
-        -t "$CI_REF" \
-        "${OUTPUT_ARG[@]}" \
-        "$REPO_ROOT"; then
-        echo ">>> ci build FAILED for ${IMAGE_NAME}/${ROS_DISTRO}." >&2
-        return 1
-    fi
-}
-
 setup_cache
-
-if $BUILD_CI; then
-    build_ci
-    [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "image=$CI_REF" >> "$GITHUB_OUTPUT"
-    exit 0
-fi
 
 DEV_RESULT="" RUNTIME_RESULT="" RELEASE_REF="" RELEASE_DEV_REF=""
 
-# Refuse to overwrite an already-published version.
+# Refuse to overwrite an already-published version, before resolving or compiling anything.
 RUNTIME_RELEASE_TAG="" DEV_RELEASE_TAG=""
 if [[ -n "$VERSION_FLAG" ]]; then
     RUNTIME_RELEASE_TAG="${RUNTIME_IMAGE}:${ROS_DISTRO}-${VERSION_FLAG}"
@@ -398,6 +483,15 @@ if [[ -n "$VERSION_FLAG" ]]; then
             exit 1
         fi
     done
+fi
+
+resolve_lock
+
+if $BUILD_CI; then
+    ensure_ci
+    [[ "$CI_OK" == true ]] || exit 1
+    [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "image=$CI_REF" >> "$GITHUB_OUTPUT"
+    exit 0
 fi
 
 # Each stage's result is captured independently. Runtime goes first: a release builds dev

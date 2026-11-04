@@ -31,9 +31,11 @@ set -euo pipefail
 # container. Not persisted across container recreation: re-run it after recreating the
 # container, or whenever src/ gains a new dependency.
 #
-# Usage: duatic-deps [--if-changed | --list] [src_dir]   (default: $ROS_WS/src, e.g. /ros2_ws/src)
+# Usage: duatic-deps [--if-changed | --list | --gate] [src_dir]   (default: $ROS_WS/src, e.g. /ros2_ws/src)
 #   --if-changed  skip the install when every manifest in src_dir is already in /etc/duatic/deps.stamp
 #   --list        print the checksum and path of every manifest in src_dir and exit
+#   --gate        fail, listing them, when the image holds unresolved dependencies: the strict
+#                 gate the robot image and CI hold
 #
 # The stamp lists every manifest already installed. An image that installs a workspace's
 # dependencies at build time writes it with --list, and each complete install adds to it, so a
@@ -42,12 +44,33 @@ set -euo pipefail
 STAMP=/etc/duatic/deps.stamp
 mode=install
 case "${1:-}" in
-    --if-changed | --list)
+    --if-changed | --list | --gate)
         mode="${1#--}"
         shift
         ;;
 esac
 SRC="${1:-${ROS_WS:-/ros2_ws}/src}"
+
+# Print every unresolved dependency the lenient installers recorded; false when there is none.
+unresolved() {
+    local m found=1
+    for m in /etc/duatic/unresolved-rosdep.txt /etc/duatic/unresolved-deps.txt; do
+        if [[ -s "$m" ]]; then
+            echo "${m}:"
+            cat "$m"
+            found=0
+        fi
+    done
+    return "$found"
+}
+
+if [[ "$mode" == gate ]]; then
+    if unresolved >&2; then
+        echo "duatic-deps: dependencies are unresolved; robots must not ship incomplete." >&2
+        exit 1
+    fi
+    exit 0
+fi
 
 # Checksum and path of every package.xml, Aptfile and requirements.txt the installers read.
 manifest_list() {
@@ -74,7 +97,7 @@ sudo duatic-install-extra-deps "$SRC" --lenient
 # No apt-get clean: a container may mount apt lists and downloaded packages as a cache.
 
 # Only a complete install is recorded, so --if-changed retries anything that failed.
-if [[ -s /etc/duatic/unresolved-rosdep.txt || -s /etc/duatic/unresolved-deps.txt ]]; then
+if unresolved >/dev/null; then
     echo "duatic-deps: some dependencies are unresolved (see duatic-doctor); not updating $STAMP." >&2
     exit 0
 fi

@@ -61,8 +61,9 @@ jobs:
           IN_DISTRO: ${{ inputs.ros_distro }}
           DEFAULT_DISTROS: ${{ env.DEFAULT_DISTROS }}
         run: |
-          # Add date for image tags (e.g. ghcr.io/duatic/<name>-dev:<distro>-<date>).
-          echo "image_date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          # Date for image tags (e.g. ghcr.io/duatic/<name>-dev:<distro>-<date>) and the ci key:
+          # the Zurich day, the same one the callers' crons run on.
+          echo "image_date=$(TZ=Europe/Zurich date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
           # Split on commas, strip whitespace, drop empties -> a JSON array of distros.
           distros=$(jq -cR 'split(",") | map(gsub("\\s"; "")) | map(select(. != ""))' <<<"${IN_DISTRO:-$DEFAULT_DISTROS}")
@@ -97,6 +98,29 @@ jobs:
       GH_PAT: ${{ secrets.GH_PAT }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # The ci image gets a new version per day and per change to what it is built from, by CI
+  # and by this nightly alike: keep the newest, which covers several days of every distro.
+  prune-ci:
+    name: Prune ci images
+    needs: build
+    if: ${{ always() && inputs.publish }}
+    runs-on: ${{ inputs.runner }}
+    # Housekeeping: a repository without admin on its package, or without one yet, keeps
+    # every version rather than failing the nightly.
+    continue-on-error: true
+    permissions:
+      packages: write
+    steps:
+      - id: name
+        env:
+          REPO: ${{ github.event.repository.name }}
+        run: echo "package=${REPO#duatic_}-ci" >> "$GITHUB_OUTPUT"
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ steps.name.outputs.package }}
+          package-type: container
+          min-versions-to-keep: 50
 
   # Coalesces every leg's badge artifact into a single commit on the calling repository's
   # image-badges branch, apart from the badges branch its CI pushes to at the same time.
