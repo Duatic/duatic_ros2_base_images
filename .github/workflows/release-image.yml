@@ -112,12 +112,8 @@ jobs:
           (see https://github.com/Duatic/duatic_ros2_base_images#releases-of-workspace-images).
           EOF
 
-      # Tags the released revision of the calling repository. An action rather than the gh CLI,
-      # which self-hosted runner images may not ship. It updates a release that already exists
-      # for the tag, so the build job's refusal to republish a version is what keeps releases
-      # immutable.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
