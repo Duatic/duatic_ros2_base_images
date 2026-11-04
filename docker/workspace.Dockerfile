@@ -12,6 +12,8 @@
 #   UNDERLAY_REF      what dev copies /opt/duatic/ws from: `no-underlay` (default, lean) or
 #                     `workspace`, which build_workspace.sh sets only when the workspace compiled.
 #   IMAGE_NAME        image name of the source repository (e.g. dynaarm)
+#   IMAGE_VERSION     what dev reports as DUATIC_IMAGE_VERSION: the release version, or the
+#                     build date for a nightly
 #   SOURCE_REPO       the repository rooting the workspace (e.g. duatic_dynaarm), whose
 #                     checkout build_workspace.sh passes as the source build context (below)
 #   COMPILE_SOURCE    1 (default): the source repository is compiled with its workspace (dev,
@@ -176,12 +178,10 @@ FROM ${UNDERLAY_REF} AS underlay
 FROM ${ROS2_DEV_IMAGE} AS dev
 ARG CACHEBUST=none
 ARG IMAGE_NAME=""
-ARG IMAGE_DATE=""
 # 1 only when UNDERLAY_REF is workspace, i.e. this image ships the prebuilt
 # /opt/duatic/ws/install underlay; 0 for the lean fallback. Informational (dev_workspace).
 ARG DUATIC_UNDERLAY=0
 ENV DUATIC_IMAGE_NAME=${IMAGE_NAME} \
-    DUATIC_IMAGE_VERSION=${IMAGE_DATE} \
     DUATIC_UNDERLAY=${DUATIC_UNDERLAY}
 WORKDIR ${ROS_WS}
 
@@ -210,6 +210,11 @@ RUN --mount=type=secret,id=GIT_AUTH_TOKEN \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=underlay /opt/duatic/ws /opt/duatic/ws
+
+# Last, so a release and a nightly of the same day share every layer above: a build arg is in
+# the environment of every RUN after it.
+ARG IMAGE_VERSION=""
+ENV DUATIC_IMAGE_VERSION=${IMAGE_VERSION}
 
 ############################
 # ci: workspace + the STRICT dependency quality gate.

@@ -129,6 +129,8 @@ Tags:
   robots) and immutable `:<distro>-YYYY-MM-DD`.
 - `dev`: rolling `:<distro>` and immutable `:<distro>-YYYY-MM-DD`. A lean image publishes only
   as `:<distro>-YYYY-MM-DD`, so `:<distro>` stays on the last build whose workspace compiled.
+  A release adds an immutable `:<distro>-<version>`, the development image matching the
+  released runtime, and moves `:<distro>` to it until the next nightly.
 - `ci`: `:<distro>-<commit>`.
 
 ### What makes up a workspace
@@ -204,8 +206,9 @@ secrets are set, so `docker.io` pulls are rate-limited per account instead of pe
   ```
 - [`build-image.yml`](.github/workflows/build-image.yml): one `target` (`dev`, `runtime`,
   `dev,runtime` for both sharing one compile, or `ci`) for one distro. It returns the ci image
-  (`target: ci`) or the release image (`target: runtime` with a `version`) as its `image`
-  output. Private repositories need the `GH_PAT` secret.
+  (`target: ci`) or the release image (a `version`) as its `image` output, and with
+  `dev,runtime` the release dev image as `dev_image`. Private repositories need the `GH_PAT`
+  secret.
 - [`release-image.yml`](.github/workflows/release-image.yml): see
   [Releases of workspace images](#releases-of-workspace-images).
 
@@ -213,11 +216,13 @@ The calling repositories need Write access to their image packages in GHCR.
 
 ### Releases of workspace images
 
-`release-image.yml` (inputs `ros_distro`, `version`) builds `runtime` through `build-image.yml`
-from the revision the calling repository runs on, refuses to run if `<name>:<distro>-<version>`
-already exists, pushes it, moves `:<distro>` to it, tags the caller `release/<distro>/<version>`,
-and attaches `sources.lock.repos` and a snapshot of what got installed (`dpkg -l`, `pip freeze`,
-`ros2 pkg list`) to a GitHub Release on that tag. A repository dispatches it by hand: a
+`release-image.yml` (inputs `ros_distro`, `version`) builds `runtime` and `dev` through
+`build-image.yml` from one compile of the revision the calling repository runs on. It refuses to
+run if `<name>:<distro>-<version>` or `<name>-dev:<distro>-<version>` already exists, builds
+`dev` only once `runtime` passed its strict gate, pushes both and moves their `:<distro>` to
+them. It then tags the caller `release/<distro>/<version>` and attaches `sources.lock.repos` and
+a snapshot of what got installed in `runtime` (`dpkg -l`, `pip freeze`, `ros2 pkg list`) to a
+GitHub Release on that tag. A repository dispatches it by hand: a
 release is a deliberate act, separate from the nightly.
 
 ### Self-hosted runners

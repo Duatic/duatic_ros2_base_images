@@ -32,10 +32,11 @@ Flags:
                          image store)
   --cachebust STR        forces a fresh source clone and a fresh apt-get update/upgrade
                          in workspace/dev                               (default: IMAGE_DATE)
-  --version VERSION      RELEASE build (--target runtime only): tags <image>:<distro>-VERSION
-                         instead of the nightly tags, refuses to build if that tag already
-                         exists (release tags are immutable), and, when pushing, moves
-                         <image>:<distro> to point at it. Used by release-image.yml.
+  --version VERSION      RELEASE build (--target runtime or dev,runtime): tags each image
+                         :<distro>-VERSION instead of the nightly tags and moves its
+                         :<distro> to it, refuses to build if a VERSION tag already exists
+                         (release tags are immutable), and builds dev only once runtime
+                         passed. Used by release-image.yml.
   --parallel-workers N   colcon packages compiled concurrently          (default: 4)
   --inner-jobs N         make jobs inside each package                  (default: 1)
                          Concurrent compilers is the product of the two; size it against
@@ -75,7 +76,8 @@ runs, e.g. in separate CI jobs, do NOT share it.
 Tags produced per target, e.g. for duatic_dynaarm on jazzy:
   runtime:  dynaarm:jazzy-nightly     and  dynaarm:jazzy-<IMAGE_DATE>      (nightly)
             dynaarm:jazzy-<VERSION>   and moves dynaarm:jazzy             (release-image.yml only)
-  dev:      dynaarm-dev:jazzy         and  dynaarm-dev:jazzy-<IMAGE_DATE>
+  dev:      dynaarm-dev:jazzy         and  dynaarm-dev:jazzy-<IMAGE_DATE>  (nightly)
+            dynaarm-dev:jazzy-<VERSION> and  dynaarm-dev:jazzy             (release-image.yml only)
   ci:       dynaarm-ci:jazzy-<commit of the checkout>
 EOF
 }
@@ -115,11 +117,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -n "$VERSION_FLAG" && "$TARGET" != "runtime" ]]; then
-    echo "Error: --version is only valid with --target runtime." >&2
-    exit 1
-fi
-
 BUILD_DEV=false BUILD_RUNTIME=false BUILD_CI=false
 IFS=, read -r -a TARGETS <<<"$TARGET"
 for t in "${TARGETS[@]}"; do
@@ -133,6 +130,10 @@ done
 $BUILD_DEV || $BUILD_RUNTIME || $BUILD_CI || { echo "Error: --target names no target." >&2; exit 1; }
 if $BUILD_CI && [[ ${#TARGETS[@]} -gt 1 ]]; then
     echo "Error: --target ci builds on its own." >&2
+    exit 1
+fi
+if [[ -n "$VERSION_FLAG" ]] && ! $BUILD_RUNTIME; then
+    echo "Error: --version releases runtime: use --target runtime or dev,runtime." >&2
     exit 1
 fi
 
@@ -265,11 +266,12 @@ ensure_workspace_build() {
 # unresolved-rosdep/unresolved-deps manifests (baked in as files, already warned about
 # during the build itself by duatic-rosdep-install/duatic-install-extra-deps) are how a
 # developer checks a RUNNING container's actual state (duatic-doctor, from ros2-dev).
+# A release tags DEV_RELEASE_TAG and moves :<distro>; a pushed one sets RELEASE_DEV_REF to it.
 build_dev() {
     ensure_workspace_build
 
     local UNDERLAY_ARG=(--build-arg "DUATIC_UNDERLAY=0")
-    local TAGS=("${DEV_IMAGE}:${ROS_DISTRO}-${IMAGE_DATE}")
+    local TAGS=("${DEV_RELEASE_TAG:-${DEV_IMAGE}:${ROS_DISTRO}-${IMAGE_DATE}}")
     if [[ "$WORKSPACE_BUILD_OK" == true ]]; then
         UNDERLAY_ARG=(--build-arg "UNDERLAY_REF=workspace" --build-arg "DUATIC_UNDERLAY=1")
         TAGS+=("${DEV_IMAGE}:${ROS_DISTRO}")
@@ -287,7 +289,7 @@ build_dev() {
         "${SOURCE_ARGS[@]}" \
         --build-arg "CACHEBUST=${CACHEBUST}" \
         --build-arg "IMAGE_NAME=${IMAGE_NAME}" \
-        --build-arg "IMAGE_DATE=${IMAGE_DATE}" \
+        --build-arg "IMAGE_VERSION=${VERSION_FLAG:-$IMAGE_DATE}" \
         "${PARALLEL_ARGS[@]}" \
         "${SECRET_ARG[@]}" \
         "${TAGS[@]/#/--tag=}" \
@@ -295,6 +297,9 @@ build_dev() {
         "$REPO_ROOT"; then
         echo ">>> dev build FAILED for ${IMAGE_NAME}/${ROS_DISTRO}" >&2
         return 1
+    fi
+    if [[ -n "$DEV_RELEASE_TAG" ]] && $PUSH; then
+        RELEASE_DEV_REF="$DEV_RELEASE_TAG"
     fi
 }
 
@@ -304,22 +309,13 @@ build_dev() {
 # Nightly publishes :<distro>-nightly and :<distro>-<date>. A robot pulling :<distro>-nightly
 # knows it's whatever main happened to build most recently, no vetting; the bare :<distro> is
 # reserved for release-image.yml's deliberately promoted, immutable :<distro>-<version> tags
-# (customer robots). A pushed release build sets RELEASE_REF to the :<distro>-<version> reference.
+# (customer robots). A pushed release build sets RELEASE_REF to RUNTIME_RELEASE_TAG.
 build_runtime() {
-    local DISTRO_REF="${RUNTIME_IMAGE}:${ROS_DISTRO}" RELEASE_TAG="" DESCRIPTION
+    local DISTRO_REF="${RUNTIME_IMAGE}:${ROS_DISTRO}" DESCRIPTION
     local -a TAG_ARGS
-    if [[ -n "$VERSION_FLAG" ]]; then
-        RELEASE_TAG="${DISTRO_REF}-${VERSION_FLAG}"
-        # Release build. Refuse to overwrite an already-published version, before compiling
-        # anything — release tags are immutable, full stop. (Any failure here, auth included,
-        # is treated the same as "tag not found" and simply proceeds to build; this is a
-        # manually-triggered, low-frequency workflow that a human reviews, not a hardened gate.)
-        if docker manifest inspect "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Error: ${RELEASE_TAG} already exists; release tags are immutable. Pick a new version." >&2
-            return 1
-        fi
-        TAG_ARGS=(-t "$RELEASE_TAG")
-        DESCRIPTION="${RELEASE_TAG} (RELEASE)"
+    if [[ -n "$RUNTIME_RELEASE_TAG" ]]; then
+        TAG_ARGS=(-t "$RUNTIME_RELEASE_TAG")
+        DESCRIPTION="${RUNTIME_RELEASE_TAG} (RELEASE)"
     else
         TAG_ARGS=(-t "${DISTRO_REF}-nightly" -t "${DISTRO_REF}-${IMAGE_DATE}")
         DESCRIPTION="${DISTRO_REF}-{nightly,${IMAGE_DATE}}"
@@ -352,10 +348,10 @@ build_runtime() {
 
     # Move :<distro> to this version — server-side (imagetools operates on the registry
     # manifest directly), so it needs the version tag to actually be pushed already.
-    if [[ -n "$RELEASE_TAG" ]] && $PUSH; then
-        echo ">>> Promoting ${DISTRO_REF} -> ${RELEASE_TAG}"
-        docker buildx imagetools create -t "$DISTRO_REF" "$RELEASE_TAG"
-        RELEASE_REF="$RELEASE_TAG"
+    if [[ -n "$RUNTIME_RELEASE_TAG" ]] && $PUSH; then
+        echo ">>> Promoting ${DISTRO_REF} -> ${RUNTIME_RELEASE_TAG}"
+        docker buildx imagetools create -t "$DISTRO_REF" "$RUNTIME_RELEASE_TAG"
+        RELEASE_REF="$RUNTIME_RELEASE_TAG"
     fi
 }
 
@@ -389,20 +385,43 @@ if $BUILD_CI; then
     exit 0
 fi
 
-DEV_RESULT="" RUNTIME_RESULT="" RELEASE_REF=""
+DEV_RESULT="" RUNTIME_RESULT="" RELEASE_REF="" RELEASE_DEV_REF=""
 
-# Each stage's result is captured independently
-if $BUILD_DEV; then
-    if build_dev; then DEV_RESULT=success; else DEV_RESULT=failure; fi
+# A release's tags, resolved once so the check below covers exactly what the builds push.
+# Refuse to overwrite an already-published version, before compiling anything — release tags
+# are immutable, full stop. (Any failure here, auth included, is treated the same as "tag not
+# found" and simply proceeds to build; this is a manually-triggered, low-frequency workflow
+# that a human reviews, not a hardened gate.)
+RUNTIME_RELEASE_TAG="" DEV_RELEASE_TAG=""
+if [[ -n "$VERSION_FLAG" ]]; then
+    RUNTIME_RELEASE_TAG="${RUNTIME_IMAGE}:${ROS_DISTRO}-${VERSION_FLAG}"
+    $BUILD_DEV && DEV_RELEASE_TAG="${DEV_IMAGE}:${ROS_DISTRO}-${VERSION_FLAG}"
+    for ref in "$RUNTIME_RELEASE_TAG" ${DEV_RELEASE_TAG:+"$DEV_RELEASE_TAG"}; do
+        if docker manifest inspect "$ref" >/dev/null 2>&1; then
+            echo "Error: ${ref} already exists; release tags are immutable. Pick a new version." >&2
+            exit 1
+        fi
+    done
 fi
+
+# Each stage's result is captured independently. Runtime goes first: a release builds dev
+# only after runtime passed its strict gate, so a failed release publishes no dev image under
+# its version either.
 if $BUILD_RUNTIME; then
     if build_runtime; then RUNTIME_RESULT=success; else RUNTIME_RESULT=failure; fi
+fi
+if $BUILD_DEV; then
+    if [[ -n "$VERSION_FLAG" && "$RUNTIME_RESULT" != success ]]; then
+        echo ">>> Skipping dev: the release of runtime failed." >&2
+        DEV_RESULT=failure
+    elif build_dev; then DEV_RESULT=success; else DEV_RESULT=failure; fi
 fi
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     [[ -n "$DEV_RESULT" ]] && echo "dev_result=$DEV_RESULT" >> "$GITHUB_OUTPUT"
     [[ -n "$RUNTIME_RESULT" ]] && echo "runtime_result=$RUNTIME_RESULT" >> "$GITHUB_OUTPUT"
     [[ -n "$RELEASE_REF" ]] && echo "image=$RELEASE_REF" >> "$GITHUB_OUTPUT"
+    [[ -n "$RELEASE_DEV_REF" ]] && echo "dev_image=$RELEASE_DEV_REF" >> "$GITHUB_OUTPUT"
 fi
 
 echo "Done."
