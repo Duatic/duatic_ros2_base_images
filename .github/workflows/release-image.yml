@@ -23,9 +23,9 @@ name: Release images
 # only reads the pushed runtime image back from the registry.
 #
 # Reproducing this exact build later (e.g. to rebuild on a patched base image without
-# touching the repository's source): pull the image, extract /etc/duatic/sources.lock.repos (or grab
-# it from the release assets), and pass it back in as
-#   docker buildx build --target runtime --build-context sourceslock=<dir with that file> ...
+# touching the repository's source): take /etc/duatic/sources.lock.repos from the image (or the
+# release assets) and a checkout of the release tag, and pass both back in as
+#   build_workspace.sh --source <checkout> --sources-lock <that file> ...
 
 on:
   workflow_call:
@@ -127,9 +127,10 @@ jobs:
           Built from \`${GITHUB_REPOSITORY}\`@\`${GITHUB_SHA}\`
 
           Robots pin to \`${IMAGE}\` directly, or track the latest release, \`${IMAGE%:*}:${DISTRO}\`.
-          Reproduce this exact build: extract \`sources.lock.repos\` below and pass it to
-          \`docker buildx build --target runtime --build-context sourceslock=<dir>\`
-          (see https://github.com/Duatic/duatic_ros2_base_images#releases-of-workspace-images).
+          packages.txt, pip-freeze.txt and ros2-pkg-list.txt below describe the $(uname -m) image.
+          Reproduce this exact build from a checkout of \`${TAG}\` with
+          \`build_workspace.sh --source <checkout> --sources-lock sources.lock.repos\`
+          (see https://github.com/Duatic/duatic_ros2_base_images#every-image-knows-what-it-is-made-of).
           EOF
 
       - name: Create GitHub Release

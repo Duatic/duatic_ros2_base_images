@@ -269,8 +269,8 @@ run if `<name>:<distro>-<version>` or `<name>-dev:<distro>-<version>` already ex
 `dev` only once `runtime` passed its strict gate, and tags both multi-arch images and moves
 their `:<distro>` only when every architecture built both: a failed leg leaves the version
 unused. It then tags the caller `release/<distro>/<version>` and attaches `sources.lock.repos` and
-a snapshot of what got installed in `runtime` (`dpkg -l`, `pip freeze`, `ros2 pkg list`) to a
-GitHub Release on that tag. A repository dispatches it by hand: a
+a snapshot of what got installed in `runtime` (`dpkg -l`, `pip freeze`, `ros2 pkg list`), taken
+on the `runner` architecture, to a GitHub Release on that tag. A repository dispatches it by hand: a
 release is a deliberate act, separate from the nightly.
 
 ### Self-hosted runners
