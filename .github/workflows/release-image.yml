@@ -88,6 +88,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Collect release artifacts
+        id: collect
         run: |
           set -euo pipefail
           docker pull "$IMAGE"
@@ -99,15 +100,8 @@ jobs:
             > ros2-pkg-list.txt
           docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}' > digest.txt
           echo "Digest: $(cat digest.txt)"
-
-      # Tags the released revision of the calling repository.
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "${IMAGE#ghcr.io/duatic/}" \
-            --notes "$(cat <<EOF
+          echo "title=${IMAGE#ghcr.io/duatic/}" >> "$GITHUB_OUTPUT"
+          cat > notes.md <<EOF
           Runtime image: \`${IMAGE}\` (also tagged \`:stable\`)
           Digest: $(cat digest.txt)
           Built from \`${GITHUB_REPOSITORY}\`@\`${GITHUB_SHA}\`
@@ -117,5 +111,18 @@ jobs:
           \`docker buildx build --target runtime --build-context sourceslock=<dir>\`
           (see https://github.com/Duatic/duatic_ros2_base_images#releases-of-workspace-images).
           EOF
-          )" \
-            sources.lock.repos packages.txt pip-freeze.txt ros2-pkg-list.txt digest.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.collect.outputs.title }}
+          body_path: notes.md
+          fail_on_unmatched_files: true
+          files: |
+            sources.lock.repos
+            packages.txt
+            pip-freeze.txt
+            ros2-pkg-list.txt
+            digest.txt
