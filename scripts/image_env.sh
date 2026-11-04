@@ -7,7 +7,7 @@
 # Inputs (env var takes precedence over default):
 #   ROS_DISTRO   any distro docker/base.Dockerfile builds (default: jazzy);
 #                not validated against a fixed list here
-#   IMAGE_DATE   immutable date tag                        (default: today, YYYY-MM-DD)
+#   IMAGE_DATE   immutable date tag          (default: today in Zurich, YYYY-MM-DD)
 #   FACTORY_REF  the git ref of this repository the factory runs from, as job.workflow_ref
 #                names it (refs/tags/v1, refs/tags/v1.2.3, refs/heads/main, ...); unset for
 #                a local build. Selects the ros2-base / ros2-dev release to build on.
@@ -23,10 +23,13 @@
 #   CI_IMAGE         ci image (…/<name>-ci, no tag)
 #
 # Every distro shares one image per role: tags start with the distro (<distro>,
-# <distro>-<version>, <distro>-nightly, ...), like the ros2-base / ros2-dev tags.
+# <distro>-<version>, <distro>-nightly, ...), like the ros2-base / ros2-dev tags. Each tag is a
+# multi-arch index over every architecture built.
 #
 # Functions:
 #   image_env_resolve <repository> <distro>   export the vars above for one cell
+#   image_env_tags <role> <version> <complete>  the tags a runtime or dev image gets
+#   image_env_release_free <version> <with dev>  whether a release version is still unused
 
 REGISTRY_NS="ghcr.io/duatic"
 
@@ -67,7 +70,7 @@ image_env_resolve() { # <repository> <distro>
     SOURCE_REPO="$1"
     IMAGE_NAME="${SOURCE_REPO#duatic_}"
     ROS_DISTRO="${2:-${ROS_DISTRO:-jazzy}}"
-    IMAGE_DATE="${IMAGE_DATE:-$(date +%Y-%m-%d)}"
+    IMAGE_DATE="${IMAGE_DATE:-$(TZ=Europe/Zurich date +%Y-%m-%d)}"
     if [[ -z "${ROS2_BASE_IMAGE:-}" || -z "${ROS2_DEV_IMAGE:-}" ]]; then
         local base_tag
         base_tag=$(image_env_base_tag "${FACTORY_REF:-}" "$ROS_DISTRO") || return 1
@@ -80,4 +83,41 @@ image_env_resolve() { # <repository> <distro>
 
     export SOURCE_REPO IMAGE_NAME ROS_DISTRO IMAGE_DATE ROS2_BASE_IMAGE ROS2_DEV_IMAGE \
         DEV_IMAGE RUNTIME_IMAGE CI_IMAGE
+}
+
+# Print the tags of a runtime or dev image, one per line, the immutable one first.
+#
+# A release tags :<distro>-<version> and moves :<distro>, the latest release for robots and the
+# matching development image. A nightly tags :<distro>-<date>, and moves runtime's
+# :<distro>-nightly and dev's :<distro>, which stays on the last dev image whose workspace
+# compiled so developers are never handed one without the underlay.
+#
+#   $1  runtime or dev
+#   $2  the release version, empty for a nightly
+#   $3  true when the image is complete (dev: every architecture compiled the workspace)
+image_env_tags() {
+    local role="$1" version="$2" complete="$3"
+    echo "${ROS_DISTRO}-${version:-$IMAGE_DATE}"
+    if [[ -n "$version" ]]; then
+        echo "$ROS_DISTRO"
+    elif [[ "$role" == runtime ]]; then
+        echo "${ROS_DISTRO}-nightly"
+    elif [[ "$complete" == true ]]; then
+        echo "$ROS_DISTRO"
+    fi
+}
+
+# Check that a release version is still free: release tags are immutable.
+#   $1  the version
+#   $2  true when the release includes dev
+# Returns non-zero, naming the tag, when runtime's (or dev's) :<distro>-<version> exists.
+image_env_release_free() {
+    local ref refs=("${RUNTIME_IMAGE}:${ROS_DISTRO}-$1")
+    [[ "$2" == true ]] && refs+=("${DEV_IMAGE}:${ROS_DISTRO}-$1")
+    for ref in "${refs[@]}"; do
+        if docker manifest inspect "$ref" >/dev/null 2>&1; then
+            echo "Error: ${ref} already exists; release tags are immutable. Pick a new version." >&2
+            return 1
+        fi
+    done
 }

@@ -17,8 +17,10 @@ name: Release images
 #   - a GitHub Release on that tag carrying the exact source pin (sources.lock.repos) and a
 #     snapshot of what's actually installed (packages.txt, pip-freeze.txt, ros2-pkg-list.txt)
 #
-# The images are built by build-image.yml, like every other image, from one compile of the
-# workspace; the release job only reads the pushed runtime image back from the registry.
+# Each image is a multi-arch index over `architectures`. The images are built by build-image.yml,
+# like every other image, from one compile of the workspace per architecture, and tagged only
+# when every architecture built both: a failed leg leaves the version unused. The release job
+# only reads the pushed runtime image back from the registry.
 #
 # Reproducing this exact build later (e.g. to rebuild on a patched base image without
 # touching the repository's source): pull the image, extract /etc/duatic/sources.lock.repos (or grab
@@ -36,10 +38,20 @@ on:
         description: "Version to tag (e.g. 1.0.0); must not already exist"
         required: true
         type: string
+      architectures:
+        description: 'JSON list of the architectures to build, of amd64 and arm64'
+        required: false
+        default: '["amd64","arm64"]'
+        type: string
       runner:
-        description: "Runner label(s) for both jobs"
+        description: "Runner label(s) for the amd64 build and every other job"
         required: false
         default: "ubuntu-latest"
+        type: string
+      runner_arm64:
+        description: "Runner label(s) for the arm64 builds"
+        required: false
+        default: "ubuntu-24.04-arm"
         type: string
     secrets:
       GH_PAT:
@@ -67,7 +79,9 @@ jobs:
       target: dev,runtime
       version: ${{ inputs.version }}
       publish: true
+      architectures: ${{ inputs.architectures }}
       runner: ${{ inputs.runner }}
+      runner_arm64: ${{ inputs.runner_arm64 }}
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}

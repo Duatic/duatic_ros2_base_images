@@ -28,10 +28,20 @@ on:
         required: false
         default: false
         type: boolean
+      architectures:
+        description: 'JSON list of the architectures to build, of amd64 and arm64'
+        required: false
+        default: '["amd64","arm64"]'
+        type: string
       runner:
-        description: "Runner label(s) for the jobs"
+        description: "Runner label(s) for the amd64 builds and every other job"
         required: false
         default: "ubuntu-latest"
+        type: string
+      runner_arm64:
+        description: "Runner label(s) for the arm64 builds"
+        required: false
+        default: "ubuntu-24.04-arm"
         type: string
     secrets:
       GH_PAT:
@@ -61,8 +71,9 @@ jobs:
           IN_DISTRO: ${{ inputs.ros_distro }}
           DEFAULT_DISTROS: ${{ env.DEFAULT_DISTROS }}
         run: |
-          # Add date for image tags (e.g. ghcr.io/duatic/<name>-dev:<distro>-<date>).
-          echo "image_date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          # Date for image tags (e.g. ghcr.io/duatic/<name>-dev:<distro>-<date>) and the ci key:
+          # the Zurich day, the same one the callers' crons run on.
+          echo "image_date=$(TZ=Europe/Zurich date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
           # Split on commas, strip whitespace, drop empties -> a JSON array of distros.
           distros=$(jq -cR 'split(",") | map(gsub("\\s"; "")) | map(select(. != ""))' <<<"${IN_DISTRO:-$DEFAULT_DISTROS}")
@@ -92,11 +103,37 @@ jobs:
       target: dev,runtime
       image_date: ${{ needs.matrix.outputs.image_date }}
       publish: ${{ inputs.publish }}
+      architectures: ${{ inputs.architectures }}
       runner: ${{ inputs.runner }}
+      runner_arm64: ${{ inputs.runner_arm64 }}
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # The ci image gets a new version per day, architecture and change to what it is built from,
+  # by CI and by this nightly alike: keep the newest, which covers several days of every distro
+  # and architecture.
+  prune-ci:
+    name: Prune ci images
+    needs: build
+    if: ${{ always() && inputs.publish }}
+    runs-on: ${{ inputs.runner }}
+    # Housekeeping: a repository without admin on its package, or without one yet, keeps
+    # every version rather than failing the nightly.
+    continue-on-error: true
+    permissions:
+      packages: write
+    steps:
+      - id: name
+        env:
+          REPO: ${{ github.event.repository.name }}
+        run: echo "package=${REPO#duatic_}-ci" >> "$GITHUB_OUTPUT"
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ steps.name.outputs.package }}
+          package-type: container
+          min-versions-to-keep: 100
 
   # Coalesces every leg's badge artifact into a single commit on the calling repository's
   # image-badges branch, apart from the badges branch its CI pushes to at the same time.

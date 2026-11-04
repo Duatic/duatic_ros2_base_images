@@ -111,15 +111,38 @@ publishes `ghcr.io/duatic/dynaarm`, the image its robots run, next to `dynaarm-d
 `dynaarm-ci`. Each image holds every distro; its tags start with the distro, like the base
 images' (`dynaarm:jazzy-1.2.0`).
 
+Like the base images, `dev` and `runtime` are multi-arch, for `amd64` and `arm64` unless the
+caller passes other `architectures`. A lock job pins the repository set once, then each
+architecture builds those commits natively on its own runner (`runner`, `runner_arm64`) and
+pushes by digest; a merge job tags the digests of every architecture together
+(`scripts/merge_images.sh`). A role is tagged only when every
+architecture built it, so a robot or developer never pulls a tag that lacks their architecture.
+`ci` is per architecture: CI tests each architecture on its own runner.
+
 | Target | Image | Contents | Consumed by |
 | --- | --- | --- | --- |
 | `dev` | `ghcr.io/duatic/<name>-dev` | `ros2-dev` + the workspace's dependencies, resolved **leniently**. When the workspace compiled, it also ships that prebuilt install as an underlay at `/opt/duatic/ws/install`, which [dev_workspace](https://github.com/Duatic/dev_workspace) overlays with its `src/`. When it did not, `dev` falls back to a **lean** image without it, so developers are never blocked. `DUATIC_UNDERLAY` records which one you got, and `duatic-doctor` reports it. | Developers, via dev_workspace |
 | `runtime` | `ghcr.io/duatic/<name>` | The compiled workspace on `ros2-base`, at `/opt/duatic/ws` (with a `/ros2_ws` symlink), and the robot entrypoint. An unresolved dependency **fails the build**: robots never ship incomplete. | Robots |
-| `ci` | `ghcr.io/duatic/<name>-ci` | The workspace the repository roots, without the repository itself, behind the same strict gate as `runtime`. Private: it contains compiled private upstream code. | [ci-workflows](https://github.com/Duatic/ci-workflows), which builds and tests the repository on top |
+| `ci` | `ghcr.io/duatic/<name>-ci` | Every dependency of the workspace, resolved **leniently**, and the upstream repositories compiled at `/opt/duatic/ws`, without the repository itself. Private: it contains compiled private upstream code. | [ci-workflows](https://github.com/Duatic/ci-workflows), which builds and tests the repository on top; `dev` and `runtime` |
 
-`dev` and `runtime` share one compile of the workspace: the internal, never-published
-`workspace` stage collects the repository's full repo set and runs `colcon build` once at
-`/opt/duatic/ws`. `runtime` builds on top of it and `dev` copies its install in.
+The images are layered so that the expensive part is built once and shared:
+
+```
+ros2-base ─► ci (dependencies + upstream repositories compiled)
+               ├─► CI: the repository built and tested on top (ci-workflows)
+               └─► workspace (internal): the repository compiled into the same install
+                      ├─► runtime: + the strict dependency gate
+                      └─► dev: ros2-dev + the dependencies + workspace's install
+```
+
+`ci` is keyed on everything it is built from: the day (in Zurich), the factory files it reads,
+the `ros2-base` digest, the distro, the architecture, the upstream repositories pinned to their
+commits, and the repository's own `package.xml`, `Aptfile` and `requirements.txt` files. `build_workspace.sh`
+publishes it under that key and reuses a published one instead of building it again, so a
+day's CI runs, pushes and nightly build it at most once per distro and architecture, and a new commit on any
+upstream branch is picked up by the next run. Releases never reuse it: they build everything
+from scratch. `dev` and `runtime` share one compile of the repository: the internal,
+never-published `workspace` stage compiles it once on top of `ci`.
 
 Tags:
 - `runtime`, release: immutable `:<distro>-<version>`, and `:<distro>`, which points at the
@@ -128,31 +151,35 @@ Tags:
 - `runtime`, nightly: `:<distro>-nightly` (whatever the last nightly built, for integration
   robots) and immutable `:<distro>-YYYY-MM-DD`.
 - `dev`: rolling `:<distro>` and immutable `:<distro>-YYYY-MM-DD`. A lean image publishes only
-  as `:<distro>-YYYY-MM-DD`, so `:<distro>` stays on the last build whose workspace compiled.
+  as `:<distro>-YYYY-MM-DD`, so `:<distro>` stays on the last build whose workspace compiled on
+  every architecture.
   A release adds an immutable `:<distro>-<version>`, the development image matching the
   released runtime, and moves `:<distro>` to it until the next nightly.
-- `ci`: `:<distro>-<commit>`.
+- `ci`: `:<distro>-<arch>-<key>`, one architecture each. The nightly keeps the newest 100
+  versions and deletes older ones.
 
 ### What makes up a workspace
 
-The calling repository owns its composition. The factory takes its checkout and runs
-`vcs import` over its `repos.list`, following the `repos.list` of every repository listed there
-and failing when two of them pin the same repository differently (`scripts/expand_repos.py`).
-A repository without a `repos.list` builds on its own.
+The calling repository owns its composition. The factory takes its `repos.list`, follows the
+`repos.list` of every repository listed there, fails when two of them pin the same repository
+differently, and pins every branch to the commit it points at right now
+(`scripts/expand_repos.py`). Every stage builds those commits. A repository without a
+`repos.list` builds on its own.
 
 Dependencies rosdep cannot resolve are declared in `requirements.txt` (pip) and `Aptfile` (apt)
 files at any depth of the workspace, which `duatic-install-extra-deps` installs after rosdep.
-Both passes in the `workspace` stage are **lenient**: unresolvable rosdep keys go to
+Both passes in the `ci` stage are **lenient**: unresolvable rosdep keys go to
 `/etc/duatic/unresolved-rosdep.txt` and uninstallable manifests to
-`/etc/duatic/unresolved-deps.txt`, without blocking the compile. Both files ship inside `dev`,
-and the `ci` stage, which `runtime` builds on, fails when either is non-empty.
+`/etc/duatic/unresolved-deps.txt`, without blocking the compile. Both files ship inside `ci` and
+`dev`; `runtime` fails when either is non-empty, and so does CI's test job.
 
 ### Every image knows what it is made of
 
 `dev`, `workspace` and `runtime` carry `/etc/duatic/sources.lock.repos`, the exact repo set
-of the build with every entry pinned to a commit. Hand it to `vcs import`, or back to
-`docker buildx build --target runtime --build-context sourceslock=<dir with that file>`, to
-reconstruct the same source tree later.
+of the build with every entry, the repository itself included, pinned to a commit. Hand it to
+`vcs import`, or rebuild from it with a checkout of the repository at the commit it names:
+`build_workspace.sh --source <that checkout> --sources-lock <the file>`. For a release, the
+caller's `release/<distro>/<version>` tag is that commit.
 
 `dev` also carries `/etc/duatic/sources.repos`, the same set with each `version:` left on the
 branch it was checked out on, as a starting point for an editable manifest.
@@ -169,8 +196,14 @@ remote. The image holds the checkout as it is, uncommitted changes included.
 # a single target, or push to ghcr.io
 ./scripts/build_workspace.sh --source ../duatic_dxtr --ros-distro jazzy --target runtime
 ./scripts/build_workspace.sh --source ../duatic_dynaarm --ros-distro jazzy --target ci
-./scripts/build_workspace.sh --source ../duatic_dynaarm --ros-distro jazzy --push
+./scripts/build_workspace.sh --source ../duatic_dynaarm --ros-distro jazzy --push --digests digests
+./scripts/merge_images.sh --architectures amd64 digests
 ```
+
+A local build is for the architecture of the docker daemon it runs on. `--push` pushes dev and
+runtime by digest, untagged; `merge_images.sh` then tags the digests of the architectures you
+name, so tagging a single-architecture push moves the multi-arch tags to that architecture
+alone.
 
 The private repositories need GitHub auth: `$GIT_AUTH_TOKEN`, or an existing `gh auth login`.
 The same token authenticates the public clones the dependency and compile layers make (pip git
@@ -202,32 +235,48 @@ secrets are set, so `docker.io` pulls are rate-limited per account instead of pe
       uses: Duatic/duatic_ros2_base_images/.github/workflows/nightly.yml@v1
       with:
         publish: ${{ github.event_name == 'schedule' || inputs.publish }}
+        # architectures: '["amd64","arm64"]'   (the default)
+        # runner_arm64: ubuntu-24.04-arm        (the default)
       secrets: inherit
   ```
 - [`build-image.yml`](.github/workflows/build-image.yml): one `target` (`dev`, `runtime`,
-  `dev,runtime` for both sharing one compile, or `ci`) for one distro. It returns the ci image
+  `dev,runtime` for both sharing one compile, or `ci` for one architecture) for one distro. It returns the ci image
   (`target: ci`) or the release image (a `version`) as its `image` output, and with
   `dev,runtime` the release dev image as `dev_image`. Private repositories need the `GH_PAT`
   secret.
 - [`release-image.yml`](.github/workflows/release-image.yml): see
   [Releases of workspace images](#releases-of-workspace-images).
 
+Every workflow takes `architectures` (a JSON list, default `'["amd64","arm64"]'`), `runner`
+(the amd64 builds and every other job, default `ubuntu-latest`) and `runner_arm64` (default
+`ubuntu-24.04-arm`). Hosted runner minutes, arm64 included, are billed for private
+repositories: a private repository passes its self-hosted arm64 label as `runner_arm64`, or
+`architectures: '["amd64"]'` until it has one.
+
 The calling repositories need Write access to their image packages in GHCR.
+
+Schedule CI before the nightly, e.g. CI at 00:30 and the nightly at 01:30 (Europe/Zurich):
+the first CI run of the day builds that day's `ci` image, and the nightly then only compiles
+the repository on top of it. Private repositories pass `runner: self-hosted` to every
+workflow, since GitHub bills hosted runner minutes for private repositories.
 
 ### Releases of workspace images
 
 `release-image.yml` (inputs `ros_distro`, `version`) builds `runtime` and `dev` through
-`build-image.yml` from one compile of the revision the calling repository runs on. It refuses to
+`build-image.yml` from the revision the calling repository runs on, from scratch: it pins the
+upstream repositories anew and never reuses a published `ci` image. It refuses to
 run if `<name>:<distro>-<version>` or `<name>-dev:<distro>-<version>` already exists, builds
-`dev` only once `runtime` passed its strict gate, pushes both and moves their `:<distro>` to
-them. It then tags the caller `release/<distro>/<version>` and attaches `sources.lock.repos` and
+`dev` only once `runtime` passed its strict gate, and tags both multi-arch images and moves
+their `:<distro>` only when every architecture built both: a failed leg leaves the version
+unused. It then tags the caller `release/<distro>/<version>` and attaches `sources.lock.repos` and
 a snapshot of what got installed in `runtime` (`dpkg -l`, `pip freeze`, `ros2 pkg list`) to a
 GitHub Release on that tag. A repository dispatches it by hand: a
 release is a deliberate act, separate from the nightly.
 
 ### Self-hosted runners
 
-The workflows run on `ubuntu-latest` unless the caller passes another `runner`. Duatic's
+The workflows run on `ubuntu-latest` and `ubuntu-24.04-arm` unless the caller passes other
+`runner` / `runner_arm64` labels. Duatic's
 self-hosted ARC runners (`runner: self-hosted`) host in-cluster pull-through registry
 mirrors. When `$HOSTIP` (the node IP, from the Kubernetes downward API) is set,
 `build_workspace.sh` renders [`docker/buildkitd.toml.tmpl`](docker/buildkitd.toml.tmpl) with it and

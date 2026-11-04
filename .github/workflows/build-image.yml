@@ -5,6 +5,10 @@ name: Build image (reusable)
 # dev,runtime (both sharing one compile, what nightly.yml uses), or ci (the repository's
 # workspace without the repository, which ci-workflows builds and tests on). See README.md for the architecture (stage graph, strict-vs-lenient dependency gate,
 # dev's lean fallback).
+#
+# Each architecture builds natively on its own runner and pushes its images by digest; the
+# merge job then tags the digests of every architecture as multi-arch images
+# (scripts/merge_images.sh). A ci image is per architecture: build it for one at a time.
 
 on:
   workflow_call:
@@ -33,10 +37,20 @@ on:
         required: false
         default: ""
         type: string
+      architectures:
+        description: 'JSON list of the architectures to build, of amd64 and arm64 (target ci: exactly one)'
+        required: false
+        default: '["amd64","arm64"]'
+        type: string
       runner:
-        description: "Runner label(s) for the build job"
+        description: "Runner label(s) for the amd64 build and the lock and merge jobs"
         required: false
         default: "ubuntu-latest"
+        type: string
+      runner_arm64:
+        description: "Runner label(s) for the arm64 build"
+        required: false
+        default: "ubuntu-24.04-arm"
         type: string
     secrets:
       GH_PAT:
@@ -51,18 +65,78 @@ on:
     outputs:
       image:
         description: "Reference of the ci image (target ci) or the release image (target runtime with version)"
-        value: ${{ jobs.build.outputs.image }}
+        value: ${{ jobs.merge.outputs.image || jobs.build.outputs.image }}
       dev_image:
         description: "Reference of the release dev image (target dev,runtime with version)"
-        value: ${{ jobs.build.outputs.dev_image }}
+        value: ${{ jobs.merge.outputs.dev_image }}
 
 jobs:
-  build:
+  # Resolves the repository set once, so every architecture builds the same commits. A ci image
+  # is built for one architecture and resolves its own.
+  lock:
+    if: ${{ inputs.target != 'ci' }}
     runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v7
+        with:
+          path: caller
+          persist-credentials: false
+
+      - name: Resolve this workflow's own revision
+        id: self
+        env:
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: |
+          [ -n "$WORKFLOW_REF" ] || { echo "::error::job.workflow_ref is empty"; exit 1; }
+          echo "repo=${WORKFLOW_REF%%/.github/*}" >> "$GITHUB_OUTPUT"
+          echo "FACTORY_REF=${WORKFLOW_REF#*@}" >> "$GITHUB_ENV"
+
+      - name: Checkout the factory
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.self.outputs.repo }}
+          ref: ${{ env.FACTORY_REF }}
+          path: factory
+
+      - name: Log in to GHCR
+        if: ${{ inputs.publish }}
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve the repository set
+        env:
+          GIT_AUTH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          IMAGE_DATE: ${{ inputs.image_date }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          ARGS=(--source caller --ros-distro "${{ inputs.ros_distro }}" --target "${{ inputs.target }}" --resolve-to lock)
+          [ -z "$VERSION" ] || ARGS+=(--version "$VERSION")
+          ./factory/scripts/build_workspace.sh "${ARGS[@]}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lock-${{ inputs.ros_distro }}
+          path: lock/
+          retention-days: 1
+          overwrite: true
+
+  # One build leg per architecture, on that architecture's runner.
+  build:
+    needs: lock
+    if: ${{ !cancelled() && needs.lock.result != 'failure' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(inputs.architectures) }}
+    name: build (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && inputs.runner_arm64 || inputs.runner }}
     timeout-minutes: 90
     outputs:
       image: ${{ steps.build.outputs.image }}
-      dev_image: ${{ steps.build.outputs.dev_image }}
     env:
       # Surfaced as env because the `secrets` context can't be read in a step-level `if`.
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -117,6 +191,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download the repository set
+        if: ${{ inputs.target != 'ci' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: lock-${{ inputs.ros_distro }}
+          path: lock
+
       - name: Build ${{ inputs.target }}
         id: build
         shell: bash
@@ -125,17 +206,89 @@ jobs:
           IMAGE_DATE: ${{ inputs.image_date }}
           VERSION: ${{ inputs.version }}
         run: |
+          if [ "${{ inputs.target }}" = ci ] && [ "${{ strategy.job-total }}" != 1 ]; then
+            echo "::error::a ci image is per architecture: build target ci for one at a time"; exit 1
+          fi
+          arch=$(docker version --format '{{.Server.Arch}}')
+          if [ "$arch" != "${{ matrix.arch }}" ]; then
+            echo "::error::the ${{ matrix.arch }} leg runs on ${arch}: check the runner inputs"; exit 1
+          fi
           ARGS=(--source caller --ros-distro "${{ inputs.ros_distro }}" --target "${{ inputs.target }}")
+          [ "${{ inputs.target }}" = ci ] || ARGS+=(--lock lock)
           if [ "${{ inputs.publish }}" = "true" ]; then
             ARGS+=(--push)
+            # Tagged together with the other architectures' by the merge job.
+            [ "${{ inputs.target }}" = ci ] || ARGS+=(--digests digests)
           fi
           if [ -n "$VERSION" ]; then
             ARGS+=(--version "$VERSION")
           fi
           ./factory/scripts/build_workspace.sh "${ARGS[@]}"
 
+      - name: Upload the digests
+        if: ${{ always() && inputs.publish && inputs.target != 'ci' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ inputs.ros_distro }}-${{ matrix.arch }}
+          path: digests/*.env
+          if-no-files-found: ignore
+          retention-days: 1
+          # A re-run of a failed leg replaces its record.
+          overwrite: true
+
+  # Tags every architecture's digests as multi-arch images, each role only when every
+  # architecture built it (scripts/merge_images.sh).
+  merge:
+    needs: [lock, build]
+    if: ${{ !cancelled() && inputs.publish && inputs.target != 'ci' && needs.lock.result == 'success' }}
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      image: ${{ steps.merge.outputs.image }}
+      dev_image: ${{ steps.merge.outputs.dev_image }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Resolve this workflow's own revision
+        id: self
+        env:
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: |
+          [ -n "$WORKFLOW_REF" ] || { echo "::error::job.workflow_ref is empty"; exit 1; }
+          echo "repo=${WORKFLOW_REF%%/.github/*}" >> "$GITHUB_OUTPUT"
+          echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the factory
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.self.outputs.repo }}
+          ref: ${{ steps.self.outputs.ref }}
+          path: factory
+
+      - name: Download the digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: digests-${{ inputs.ros_distro }}-*
+          path: digests
+          merge-multiple: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the multi-arch images
+        id: merge
+        env:
+          ARCHITECTURES: ${{ inputs.architectures }}
+        run: |
+          mkdir -p digests
+          ./factory/scripts/merge_images.sh --architectures "$(jq -r 'join(",")' <<<"$ARCHITECTURES")" digests
+
       - name: Write dev/runtime badge artifact
-        if: ${{ always() && inputs.publish && !inputs.version && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
+        if: ${{ always() && !inputs.version && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -151,13 +304,14 @@ jobs:
           {"schemaVersion":1,"label":"","message":"${message}","color":"${color}"}
           EOF
           }
-          render dev "${{ steps.build.outputs.dev_result }}"
-          render runtime "${{ steps.build.outputs.runtime_result }}"
+          render dev "${{ steps.merge.outputs.dev_result }}"
+          render runtime "${{ steps.merge.outputs.runtime_result }}"
 
       - name: Upload dev/runtime badge artifact
-        if: ${{ always() && inputs.publish && !inputs.version && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
+        if: ${{ always() && !inputs.version && contains(inputs.target, 'dev') && contains(inputs.target, 'runtime') }}
         uses: actions/upload-artifact@v7
         with:
           name: badge-${{ inputs.ros_distro }}
           path: badge/*.json
           retention-days: 1
+          overwrite: true
