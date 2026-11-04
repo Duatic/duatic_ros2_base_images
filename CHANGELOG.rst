@@ -2,6 +2,10 @@
 Changelog
 ^^^^^^^^^
 
+1.1.0 (2026-11-04)
+------------------
+* feat(factory): name workspace images for customers (#23)
+
 1.0.4 (2026-11-04)
 ------------------
 * fix(factory): create the release without the gh CLI (#21)
