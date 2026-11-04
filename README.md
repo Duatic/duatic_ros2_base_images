@@ -5,7 +5,7 @@ builds the Duatic images of every repository that calls it on top of them.
 
 - **Base images** (`ros2-base`, `ros2-dev`): generic, multi-arch, built and released by this
   repository. See [Using the dev image](#using-the-dev-image).
-- **Workspace images** (`<name>/<distro>-dev`, `<name>/<distro>-runtime`, `ci/<repo>/<distro>`):
+- **Workspace images** (`<name>`, `<name>-dev`, `<name>-ci`):
   built from the checkout of whichever repository calls this repository's reusable workflows.
   See [Workspace images](#workspace-images).
 
@@ -106,27 +106,30 @@ the ones here.
 The factory keeps no list of repositories: a repository calls its reusable workflows, and the
 factory builds the workspace that repository roots (the repository and everything its
 `repos.list` collects) from its checkout, on top of the base images.
-`<name>` is the calling repository's name without its `duatic_` prefix, so `duatic_dynaarm`
-publishes `ghcr.io/duatic/dynaarm/<distro>-dev`.
+`<name>` is the calling repository's name without its `duatic_` prefix: `duatic_dynaarm`
+publishes `ghcr.io/duatic/dynaarm`, the image its robots run, next to `dynaarm-dev` and
+`dynaarm-ci`. Each image holds every distro; its tags start with the distro, like the base
+images' (`dynaarm:jazzy-1.2.0`).
 
 | Target | Image | Contents | Consumed by |
 | --- | --- | --- | --- |
-| `dev` | `ghcr.io/duatic/<name>/<distro>-dev` | `ros2-dev` + the workspace's dependencies, resolved **leniently**. When the workspace compiled, it also ships that prebuilt install as an underlay at `/opt/duatic/ws/install`, which [dev_workspace](https://github.com/Duatic/dev_workspace) overlays with its `src/`. When it did not, `dev` falls back to a **lean** image without it, so developers are never blocked. `DUATIC_UNDERLAY` records which one you got, and `duatic-doctor` reports it. | Developers, via dev_workspace |
-| `runtime` | `ghcr.io/duatic/<name>/<distro>-runtime` | The compiled workspace on `ros2-base`, at `/opt/duatic/ws` (with a `/ros2_ws` symlink), and the robot entrypoint. An unresolved dependency **fails the build**: robots never ship incomplete. | Robots |
-| `ci` | `ghcr.io/duatic/ci/<repo>/<distro>:<commit>` | The workspace the repository roots, without the repository itself, behind the same strict gate as `runtime`. Private: it contains compiled private upstream code. | [ci-workflows](https://github.com/Duatic/ci-workflows), which builds and tests the repository on top |
+| `dev` | `ghcr.io/duatic/<name>-dev` | `ros2-dev` + the workspace's dependencies, resolved **leniently**. When the workspace compiled, it also ships that prebuilt install as an underlay at `/opt/duatic/ws/install`, which [dev_workspace](https://github.com/Duatic/dev_workspace) overlays with its `src/`. When it did not, `dev` falls back to a **lean** image without it, so developers are never blocked. `DUATIC_UNDERLAY` records which one you got, and `duatic-doctor` reports it. | Developers, via dev_workspace |
+| `runtime` | `ghcr.io/duatic/<name>` | The compiled workspace on `ros2-base`, at `/opt/duatic/ws` (with a `/ros2_ws` symlink), and the robot entrypoint. An unresolved dependency **fails the build**: robots never ship incomplete. | Robots |
+| `ci` | `ghcr.io/duatic/<name>-ci` | The workspace the repository roots, without the repository itself, behind the same strict gate as `runtime`. Private: it contains compiled private upstream code. | [ci-workflows](https://github.com/Duatic/ci-workflows), which builds and tests the repository on top |
 
 `dev` and `runtime` share one compile of the workspace: the internal, never-published
 `workspace` stage collects the repository's full repo set and runs `colcon build` once at
 `/opt/duatic/ws`. `runtime` builds on top of it and `dev` copies its install in.
 
 Tags:
-- `dev`: rolling `:latest` and immutable `:YYYY-MM-DD`. A lean image publishes only as
-  `:YYYY-MM-DD`, so `:latest` stays on the last build whose workspace compiled.
-- `runtime`, nightly: `:edge` (whatever the last nightly built, for integration robots) and
-  immutable `:YYYY-MM-DD`.
-- `runtime`, release: immutable `:<version>` and rolling `:stable`. See
-  [Releases of workspace images](#releases-of-workspace-images). Customer robots pin a
-  `:<version>` or track `:stable`.
+- `runtime`, release: immutable `:<distro>-<version>`, and `:<distro>`, which points at the
+  latest release. See [Releases of workspace images](#releases-of-workspace-images). Customer
+  robots pin a `:<distro>-<version>` or track `:<distro>`.
+- `runtime`, nightly: `:<distro>-nightly` (whatever the last nightly built, for integration
+  robots) and immutable `:<distro>-YYYY-MM-DD`.
+- `dev`: rolling `:<distro>` and immutable `:<distro>-YYYY-MM-DD`. A lean image publishes only
+  as `:<distro>-YYYY-MM-DD`, so `:<distro>` stays on the last build whose workspace compiled.
+- `ci`: `:<distro>-<commit>`.
 
 ### What makes up a workspace
 
@@ -211,9 +214,9 @@ The calling repositories need Write access to their image packages in GHCR.
 ### Releases of workspace images
 
 `release-image.yml` (inputs `ros_distro`, `version`) builds `runtime` through `build-image.yml`
-from the revision the calling repository runs on, refuses to run if `<image>:<version>` already
-exists, pushes it, moves `:stable` to it, tags the caller `release/<distro>/<version>`, and attaches
-`sources.lock.repos` and a snapshot of what got installed (`dpkg -l`, `pip freeze`,
+from the revision the calling repository runs on, refuses to run if `<name>:<distro>-<version>`
+already exists, pushes it, moves `:<distro>` to it, tags the caller `release/<distro>/<version>`,
+and attaches `sources.lock.repos` and a snapshot of what got installed (`dpkg -l`, `pip freeze`,
 `ros2 pkg list`) to a GitHub Release on that tag. A repository dispatches it by hand: a
 release is a deliberate act, separate from the nightly.
 

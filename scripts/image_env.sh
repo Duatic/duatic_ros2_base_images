@@ -18,9 +18,12 @@
 #   ROS_DISTRO IMAGE_DATE
 #   ROS2_BASE_IMAGE  ros2-base image (fetch, workspace, runtime build FROM it)
 #   ROS2_DEV_IMAGE   ros2-dev image (dev builds FROM it)
-#   DEV_IMAGE        published dev image (…/<name>/<distro>-dev, no tag)
-#   RUNTIME_IMAGE    published runtime image (…/<name>/<distro>-runtime, no tag)
-#   CI_IMAGE         ci image (…/ci/<repository>/<distro>, no tag)
+#   RUNTIME_IMAGE    published runtime image, the product itself (…/<name>, no tag)
+#   DEV_IMAGE        published dev image (…/<name>-dev, no tag)
+#   CI_IMAGE         ci image (…/<name>-ci, no tag)
+#
+# Every distro shares one image per role: tags start with the distro (<distro>,
+# <distro>-<version>, <distro>-nightly, ...), like the ros2-base / ros2-dev tags.
 #
 # Functions:
 #   image_env_resolve <repository> <distro>   export the vars above for one cell
@@ -71,9 +74,9 @@ image_env_resolve() { # <repository> <distro>
         ROS2_BASE_IMAGE="${ROS2_BASE_IMAGE:-${REGISTRY_NS}/ros2-base:${base_tag}}"
         ROS2_DEV_IMAGE="${ROS2_DEV_IMAGE:-${REGISTRY_NS}/ros2-dev:${base_tag}}"
     fi
-    DEV_IMAGE="${REGISTRY_NS}/${IMAGE_NAME}/${ROS_DISTRO}-dev"
-    RUNTIME_IMAGE="${REGISTRY_NS}/${IMAGE_NAME}/${ROS_DISTRO}-runtime"
-    CI_IMAGE="${REGISTRY_NS}/ci/${SOURCE_REPO}/${ROS_DISTRO}"
+    RUNTIME_IMAGE="${REGISTRY_NS}/${IMAGE_NAME}"
+    DEV_IMAGE="${REGISTRY_NS}/${IMAGE_NAME}-dev"
+    CI_IMAGE="${REGISTRY_NS}/${IMAGE_NAME}-ci"
 
     export SOURCE_REPO IMAGE_NAME ROS_DISTRO IMAGE_DATE ROS2_BASE_IMAGE ROS2_DEV_IMAGE \
         DEV_IMAGE RUNTIME_IMAGE CI_IMAGE

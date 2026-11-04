@@ -19,8 +19,8 @@ Usage:
 
 The checkout roots the workspace: its repos.list collects the other repositories, and its
 packages and dependency manifests go in. The repository is named after the checkout's origin
-remote, and the dev and runtime images after the repository without its duatic_ prefix
-(duatic_dynaarm -> ghcr.io/duatic/dynaarm/<distro>-{dev,runtime}).
+remote, and its images after the repository without its duatic_ prefix: duatic_dynaarm
+publishes ghcr.io/duatic/dynaarm (runtime), dynaarm-dev and dynaarm-ci, every distro in each.
 
 Flags:
   --source DIR           a checkout of the repository rooting the image (required)
@@ -32,10 +32,10 @@ Flags:
                          image store)
   --cachebust STR        forces a fresh source clone and a fresh apt-get update/upgrade
                          in workspace/dev                               (default: IMAGE_DATE)
-  --version VERSION      RELEASE build (--target runtime only): tags <image>:VERSION instead
-                         of :edge/:<IMAGE_DATE>, refuses to build if that tag already
+  --version VERSION      RELEASE build (--target runtime only): tags <image>:<distro>-VERSION
+                         instead of the nightly tags, refuses to build if that tag already
                          exists (release tags are immutable), and, when pushing, moves
-                         <image>:stable to point at it. Used by release-image.yml.
+                         <image>:<distro> to point at it. Used by release-image.yml.
   --parallel-workers N   colcon packages compiled concurrently          (default: 4)
   --inner-jobs N         make jobs inside each package                  (default: 1)
                          Concurrent compilers is the product of the two; size it against
@@ -55,12 +55,12 @@ Targets:
           (e.g. a missing dependency), dev falls back to a LEAN image (no prebuilt
           workspace) instead of blocking developers (DUATIC_UNDERLAY inside the image
           records which one it got). A FAILED build publishes nothing, so yesterday's
-          :latest is simply still there; developers are never blocked.
+          :<distro> is simply still there; developers are never blocked.
   runtime the compiled workspace behind the STRICT dependency gate: the workspace stage
           resolved deps leniently, so a non-empty /etc/duatic/unresolved-rosdep.txt fails
           runtime outright here, whether or not dev fell back. Robots never ship
-          incomplete. Nightly publishes :edge, not :latest; see release-image.yml for the
-          immutable :<version>/:stable channel.
+          incomplete. Nightly publishes :<distro>-nightly; :<distro> is reserved for the
+          latest release (release-image.yml).
   ci      the workspace the checkout roots (everything its repos.list collects and every
           dependency, behind the strict gate), without the repository itself: CI builds and
           tests the checkout on top. Tagged with the checkout's commit. Built on its own.
@@ -72,11 +72,11 @@ does the work and the second reuses the cached stage, so `--target dev,runtime` 
 nightly uses) compiles the workspace once. Two separate `--target dev` / `--target runtime`
 runs, e.g. in separate CI jobs, do NOT share it.
 
-Tags produced per target:
-  dev:      <image>:latest  and  <image>:<IMAGE_DATE>
-  runtime:  <image>:edge    and  <image>:<IMAGE_DATE>           (nightly)
-            <image>:<VERSION> and moves <image>:stable          (release-image.yml only)
-  ci:       ghcr.io/duatic/ci/<repo>/<distro>:<commit of the checkout>
+Tags produced per target, e.g. for duatic_dynaarm on jazzy:
+  runtime:  dynaarm:jazzy-nightly     and  dynaarm:jazzy-<IMAGE_DATE>      (nightly)
+            dynaarm:jazzy-<VERSION>   and moves dynaarm:jazzy             (release-image.yml only)
+  dev:      dynaarm-dev:jazzy         and  dynaarm-dev:jazzy-<IMAGE_DATE>
+  ci:       dynaarm-ci:jazzy-<commit of the checkout>
 EOF
 }
 
@@ -260,7 +260,7 @@ ensure_workspace_build() {
 
 # Dev image: copies the workspace's install (ensure_workspace_build) in as a prebuilt
 # underlay; falls back to a lean image if the workspace failed to compile. A lean image is
-# tagged only :<date>, so :latest stays on the last build whose workspace compiled and
+# tagged only :<distro>-<date>, so :<distro> stays on the last build whose workspace compiled and
 # developers pulling it are never handed an image without the underlay. DUATIC_UNDERLAY (baked in as an image ENV) and the
 # unresolved-rosdep/unresolved-deps manifests (baked in as files, already warned about
 # during the build itself by duatic-rosdep-install/duatic-install-extra-deps) are how a
@@ -269,13 +269,13 @@ build_dev() {
     ensure_workspace_build
 
     local UNDERLAY_ARG=(--build-arg "DUATIC_UNDERLAY=0")
-    local TAGS=("${DEV_IMAGE}:${IMAGE_DATE}")
+    local TAGS=("${DEV_IMAGE}:${ROS_DISTRO}-${IMAGE_DATE}")
     if [[ "$WORKSPACE_BUILD_OK" == true ]]; then
         UNDERLAY_ARG=(--build-arg "UNDERLAY_REF=workspace" --build-arg "DUATIC_UNDERLAY=1")
-        TAGS+=("${DEV_IMAGE}:latest")
+        TAGS+=("${DEV_IMAGE}:${ROS_DISTRO}")
     else
         echo ">>> dev image will be LEAN for ${IMAGE_NAME}/${ROS_DISTRO} (the workspace failed to compile, no prebuilt workspace)." >&2
-        $PUSH && echo ">>> NOT moving ${DEV_IMAGE}:latest: the last good one stays." >&2
+        $PUSH && echo ">>> NOT moving ${DEV_IMAGE}:${ROS_DISTRO}: the last good one stays." >&2
     fi
 
     echo ">>> Building dev: ${TAGS[*]} for ${IMAGE_NAME}/${ROS_DISTRO}"
@@ -301,11 +301,30 @@ build_dev() {
 # Runtime image: always FROM the compiled workspace (ensure_workspace_build), never a lean
 # fallback, robots must not ship incomplete. Fails outright if the workspace didn't compile.
 #
-# Nightly publishes :edge + :<date> — NOT :latest. A robot pulling :edge knows it's
-# whatever main happened to build most recently, no vetting; :latest/:stable are reserved
-# for release-image.yml's deliberately-promoted, immutable :<version> tags (customer robots).
-# A pushed release build sets RELEASE_REF to the :<version> reference.
+# Nightly publishes :<distro>-nightly and :<distro>-<date>. A robot pulling :<distro>-nightly
+# knows it's whatever main happened to build most recently, no vetting; the bare :<distro> is
+# reserved for release-image.yml's deliberately promoted, immutable :<distro>-<version> tags
+# (customer robots). A pushed release build sets RELEASE_REF to the :<distro>-<version> reference.
 build_runtime() {
+    local DISTRO_REF="${RUNTIME_IMAGE}:${ROS_DISTRO}" RELEASE_TAG="" DESCRIPTION
+    local -a TAG_ARGS
+    if [[ -n "$VERSION_FLAG" ]]; then
+        RELEASE_TAG="${DISTRO_REF}-${VERSION_FLAG}"
+        # Release build. Refuse to overwrite an already-published version, before compiling
+        # anything — release tags are immutable, full stop. (Any failure here, auth included,
+        # is treated the same as "tag not found" and simply proceeds to build; this is a
+        # manually-triggered, low-frequency workflow that a human reviews, not a hardened gate.)
+        if docker manifest inspect "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Error: ${RELEASE_TAG} already exists; release tags are immutable. Pick a new version." >&2
+            return 1
+        fi
+        TAG_ARGS=(-t "$RELEASE_TAG")
+        DESCRIPTION="${RELEASE_TAG} (RELEASE)"
+    else
+        TAG_ARGS=(-t "${DISTRO_REF}-nightly" -t "${DISTRO_REF}-${IMAGE_DATE}")
+        DESCRIPTION="${DISTRO_REF}-{nightly,${IMAGE_DATE}}"
+    fi
+
     ensure_workspace_build
 
     if [[ "$WORKSPACE_BUILD_OK" != true ]]; then
@@ -313,23 +332,7 @@ build_runtime() {
         return 1
     fi
 
-    local -a TAG_ARGS
-    if [[ -n "$VERSION_FLAG" ]]; then
-        # Release build. Refuse to overwrite an already-published version — release tags
-        # are immutable, full stop. (Any failure here, auth included, is treated the same
-        # as "tag not found" and simply proceeds to build; this is a manually-triggered,
-        # low-frequency workflow that a human reviews, not a hardened gate.)
-        if docker manifest inspect "${RUNTIME_IMAGE}:${VERSION_FLAG}" >/dev/null 2>&1; then
-            echo "Error: ${RUNTIME_IMAGE}:${VERSION_FLAG} already exists; release tags are immutable. Pick a new version." >&2
-            return 1
-        fi
-        TAG_ARGS=(-t "${RUNTIME_IMAGE}:${VERSION_FLAG}")
-        echo ">>> Building runtime: ${RUNTIME_IMAGE}:${VERSION_FLAG} (RELEASE) for ${IMAGE_NAME}/${ROS_DISTRO}"
-    else
-        TAG_ARGS=(-t "${RUNTIME_IMAGE}:edge" -t "${RUNTIME_IMAGE}:${IMAGE_DATE}")
-        echo ">>> Building runtime: ${RUNTIME_IMAGE}:{edge,${IMAGE_DATE}} for ${IMAGE_NAME}/${ROS_DISTRO}"
-    fi
-
+    echo ">>> Building runtime: ${DESCRIPTION} for ${IMAGE_NAME}/${ROS_DISTRO}"
     # Checked explicitly rather than relying on this being the last statement: see build_dev().
     if ! docker buildx build \
         -f "$DOCKERFILE" \
@@ -347,19 +350,19 @@ build_runtime() {
         return 1
     fi
 
-    # Move :stable to this version — server-side (imagetools operates on the registry
+    # Move :<distro> to this version — server-side (imagetools operates on the registry
     # manifest directly), so it needs the version tag to actually be pushed already.
-    if [[ -n "$VERSION_FLAG" ]] && $PUSH; then
-        echo ">>> Promoting ${RUNTIME_IMAGE}:stable -> ${VERSION_FLAG}"
-        docker buildx imagetools create -t "${RUNTIME_IMAGE}:stable" "${RUNTIME_IMAGE}:${VERSION_FLAG}"
-        RELEASE_REF="${RUNTIME_IMAGE}:${VERSION_FLAG}"
+    if [[ -n "$RELEASE_TAG" ]] && $PUSH; then
+        echo ">>> Promoting ${DISTRO_REF} -> ${RELEASE_TAG}"
+        docker buildx imagetools create -t "$DISTRO_REF" "$RELEASE_TAG"
+        RELEASE_REF="$RELEASE_TAG"
     fi
 }
 
 # CI image: the checkout's workspace without the checkout, tagged with its commit. Sets
 # CI_REF to its reference.
 build_ci() {
-    CI_REF="${CI_IMAGE}:$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    CI_REF="${CI_IMAGE}:${ROS_DISTRO}-$(git -C "$SOURCE_DIR" rev-parse HEAD)"
     echo ">>> Building ci: ${CI_REF}"
     if ! docker buildx build \
         -f "$DOCKERFILE" \
@@ -373,7 +376,7 @@ build_ci() {
         -t "$CI_REF" \
         "${OUTPUT_ARG[@]}" \
         "$REPO_ROOT"; then
-        echo ">>> ci build FAILED for ${SOURCE_REPO}/${ROS_DISTRO}." >&2
+        echo ">>> ci build FAILED for ${IMAGE_NAME}/${ROS_DISTRO}." >&2
         return 1
     fi
 }
