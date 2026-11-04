@@ -2,6 +2,10 @@
 Changelog
 ^^^^^^^^^
 
+1.0.4 (2026-11-04)
+------------------
+* fix(factory): create the release without the gh CLI (#21)
+
 1.0.3 (2026-11-03)
 ------------------
 * fix(factory): push the dev image straight from BuildKit (#19)
