@@ -387,11 +387,7 @@ fi
 
 DEV_RESULT="" RUNTIME_RESULT="" RELEASE_REF="" RELEASE_DEV_REF=""
 
-# A release's tags, resolved once so the check below covers exactly what the builds push.
-# Refuse to overwrite an already-published version, before compiling anything — release tags
-# are immutable, full stop. (Any failure here, auth included, is treated the same as "tag not
-# found" and simply proceeds to build; this is a manually-triggered, low-frequency workflow
-# that a human reviews, not a hardened gate.)
+# Refuse to overwrite an already-published version.
 RUNTIME_RELEASE_TAG="" DEV_RELEASE_TAG=""
 if [[ -n "$VERSION_FLAG" ]]; then
     RUNTIME_RELEASE_TAG="${RUNTIME_IMAGE}:${ROS_DISTRO}-${VERSION_FLAG}"
