@@ -43,10 +43,10 @@ list_versions() {
     done | jq -s 'add // []'
 }
 
-# Print the digests an image index lists, one per line; nothing for a single manifest.
-#   $1  the digest of the version
+# Print the manifests an image index lists, one "<digest> <mediaType>" per line.
+#   $1  the digest of the index
 children() {
-    docker manifest inspect "${IMAGE}@$1" | jq -r '.manifests[]?.digest'
+    docker manifest inspect "${IMAGE}@$1" | jq -r '.manifests[]? | "\(.digest) \(.mediaType)"'
 }
 
 VERSIONS=$(list_versions)
@@ -59,18 +59,20 @@ if jq -e 'length > 0 and all(.old)' <<<"$VERSIONS" >/dev/null; then
 fi
 
 # Every digest a kept tag needs. Only tags point at indexes worth following: an untagged kept
-# version is recent, and so is everything it lists. A failed inspect stops the script, so a
-# needed manifest is never taken for an unreferenced one.
+# version is recent, and so is everything it lists. Only indexes are inspected, and a failed
+# inspect stops the script, so a needed manifest is never taken for an unreferenced one.
 declare -A NEEDED=()
 mapfile -t queue < <(jq -r '.[] | select((.old | not) and (.metadata.container.tags | length > 0))
                             | .name' <<<"$VERSIONS")
+for digest in "${queue[@]}"; do NEEDED[$digest]=1; done
 while [[ ${#queue[@]} -gt 0 ]]; do
-    digest=${queue[0]}
+    kids=$(children "${queue[0]}")
     queue=("${queue[@]:1}")
-    [[ -z "${NEEDED[$digest]:-}" ]] || continue
-    NEEDED[$digest]=1
-    kids=$(children "$digest")
-    [[ -z "$kids" ]] || mapfile -t -O "${#queue[@]}" queue <<<"$kids"
+    while read -r digest type; do
+        [[ -n "$digest" && -z "${NEEDED[$digest]:-}" ]] || continue
+        NEEDED[$digest]=1
+        [[ "$type" != *index* && "$type" != *manifest.list* ]] || queue+=("$digest")
+    done <<<"$kids"
 done
 
 mapfile -t DELETE < <(jq -r '.[] | select(.old) | "\(.id) \(.name)"' <<<"$VERSIONS")
