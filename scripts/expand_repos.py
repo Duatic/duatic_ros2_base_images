@@ -22,20 +22,30 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-"""Flatten a repos.list together with every repos.list its git repositories carry, recursively.
+"""Resolve the repository set a workspace is built from, every git repository pinned to a commit.
 
-Each git entry's own repos.list is read at the version that entry pins. Two lists naming the same
-repository key must agree on its type, url and version, and one url may not appear under two keys;
-either is an error that names both lists. The merged list is printed as YAML, ready for `vcs import`.
+REPOS_FILE is the root repository's repos.list (missing: the root builds on its own). It is merged
+with every repos.list its git repositories carry, recursively, each read at the version that entry
+names. Two lists naming the same repository key must agree on its type, url and version, and one
+url may not appear under two keys; either is an error that names both lists. Each git repository
+is pinned to the commit its version names right now.
 
-Usage:  expand_repos.py REPOS_FILE [--exclude-url URL]
+Usage:  expand_repos.py REPOS_FILE --root NAME URL COMMIT BRANCH --out DIR [--locked]
 
---exclude-url drops the repository being built, which a dependency's own list may name in turn.
+Writes, ready for `vcs import`:
+  DIR/upstream.repos       the pinned repositories, without the root: what the build imports
+  DIR/sources.lock.repos   the root at COMMIT and the pinned repositories: the exact source pin
+  DIR/sources.repos        the root at BRANCH and every repository at the version its list names:
+                           an editable, branch-tracking manifest
+
+--locked takes REPOS_FILE as the sources.lock.repos of an earlier build, to reproduce it: nothing
+is expanded or pinned again, the root (matched by URL) is left out of upstream.repos, and both
+manifests repeat REPOS_FILE.
 """
 
 import argparse
+import os
 import subprocess
-import sys
 import tempfile
 from collections import deque
 
@@ -60,8 +70,16 @@ def repositories(text):
     return (yaml.safe_load(text) or {}).get("repositories") or {}
 
 
-def nested_list(url, version):
-    """The repos.list text a git repository carries at version, or None when it carries none."""
+def resolve(url, version):
+    """The commit a git repository's version names, and the repos.list text it carries there.
+
+    Args:
+        url: the repository to fetch from.
+        version: a branch, tag or commit.
+
+    Returns:
+        (commit, text), text None when the repository carries no repos.list.
+    """
     with tempfile.TemporaryDirectory() as tmp:
 
         def git(*args):
@@ -77,26 +95,29 @@ def nested_list(url, version):
         git("config", "remote.origin.promisor", "true")
         git("config", "remote.origin.partialclonefilter", "blob:none")
         git("fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", version)
+        commit = git("rev-parse", "FETCH_HEAD").strip()
         if not git("ls-tree", "FETCH_HEAD", NESTED).strip():
-            return None
-        return git("show", f"FETCH_HEAD:{NESTED}")
+            return commit, None
+        return commit, git("show", f"FETCH_HEAD:{NESTED}")
 
 
-def main():
-    """Print the merged repos list, or exit with the first conflict found."""
-    ap = argparse.ArgumentParser()
-    ap.add_argument("repos_file")
-    ap.add_argument("--exclude-url", default="")
-    args = ap.parse_args()
-    exclude = normalized_url(args.exclude_url) if args.exclude_url else None
+def expand(repos, root_url):
+    """Merge repos with the lists its git repositories carry, pinning each git repository.
 
-    with open(args.repos_file) as f:
-        queue = deque([(args.repos_file, repositories(f.read()))])
-    merged, named_by, key_of_url = {}, {}, {}
+    Args:
+        repos: the repositories mapping of the root's repos.list.
+        root_url: the root repository's normalized url, left out wherever a list names it.
+
+    Returns:
+        (merged, pinned): the repositories at the versions their lists name, and the same with
+        every git repository's version replaced by its commit.
+    """
+    queue = deque([(NESTED, repos)])
+    merged, pinned, named_by, key_of_url = {}, {}, {}, {}
     while queue:
         origin, repos = queue.popleft()
         for key, entry in repos.items():
-            if exclude and normalized_url(entry.get("url", "")) == exclude:
+            if normalized_url(entry.get("url", "")) == root_url:
                 continue
             if key in merged:
                 if spec(merged[key]) != spec(entry):
@@ -114,12 +135,52 @@ def main():
                     f'{entry.get("url")} is named both {other} ({named_by[other]}) and {key} ({origin})'
                 )
             merged[key], named_by[key], key_of_url[url] = entry, origin, key
-            if entry.get("type") == "git":
-                text = nested_list(entry["url"], str(entry.get("version") or "HEAD"))
-                if text is not None:
-                    queue.append((f"{key}/{NESTED}", repositories(text)))
+            if entry.get("type") != "git":
+                pinned[key] = entry
+                continue
+            commit, text = resolve(entry["url"], str(entry.get("version") or "HEAD"))
+            pinned[key] = {**entry, "version": commit}
+            if text is not None:
+                queue.append((f"{key}/{NESTED}", repositories(text)))
+    return merged, pinned
 
-    yaml.safe_dump({"repositories": merged}, sys.stdout, sort_keys=False, default_flow_style=False)
+
+def write(path, repos):
+    """Write a repositories mapping as a repos file."""
+    with open(path, "w") as f:
+        yaml.safe_dump({"repositories": repos}, f, sort_keys=False, default_flow_style=False)
+
+
+def main():
+    """Write the three repos files, or exit with the first conflict found."""
+    ap = argparse.ArgumentParser()
+    ap.add_argument("repos_file")
+    ap.add_argument("--root", nargs=4, required=True, metavar=("NAME", "URL", "COMMIT", "BRANCH"))
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--locked", action="store_true")
+    args = ap.parse_args()
+    name, url, commit, branch = args.root
+    root_url = normalized_url(url)
+
+    repos = {}
+    if os.path.exists(args.repos_file):
+        with open(args.repos_file) as f:
+            repos = repositories(f.read())
+
+    if args.locked:
+        upstream = {k: e for k, e in repos.items() if normalized_url(e.get("url", "")) != root_url}
+        write(os.path.join(args.out, "upstream.repos"), upstream)
+        write(os.path.join(args.out, "sources.lock.repos"), repos)
+        write(os.path.join(args.out, "sources.repos"), repos)
+        return
+
+    merged, pinned = expand(repos, root_url)
+    root = {"type": "git", "url": url}
+    write(os.path.join(args.out, "upstream.repos"), pinned)
+    write(
+        os.path.join(args.out, "sources.lock.repos"), {name: {**root, "version": commit}, **pinned}
+    )
+    write(os.path.join(args.out, "sources.repos"), {name: {**root, "version": branch}, **merged})
 
 
 if __name__ == "__main__":

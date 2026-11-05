@@ -20,12 +20,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The base images are rebuilt only when a change reaches them.
+  changes:
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    outputs:
+      base: ${{ steps.diff.outputs.base }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          FROM: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          inputs='^(docker/base\.Dockerfile|\.dockerignore|config/|scripts/(rosdep_install|install_extra_deps|duatic_deps|duatic_doctor|build_base)\.sh|\.github/workflows/(build_base_images|ci)\.yml)'
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] || ! git cat-file -e "${FROM}^{commit}" 2>/dev/null; then
+            base=true
+          elif git diff --name-only "$FROM" HEAD | grep -qE "$inputs"; then
+            base=true
+          else
+            base=false
+          fi
+          echo "base=${base}" | tee -a "$GITHUB_OUTPUT"
+
   build:
+    needs: changes
+    if: ${{ needs.changes.outputs.base == 'true' }}
     strategy:
       fail-fast: false
       matrix:
         ros_distro: [humble, jazzy, kilted, lyrical, rolling]
-    uses: ./.github/workflows/build-base.yml
+    uses: ./.github/workflows/build_base_images.yml
     permissions:
       contents: read
       packages: write
