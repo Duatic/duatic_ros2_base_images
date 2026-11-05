@@ -149,14 +149,18 @@ Tags:
   latest release. See [Releases of workspace images](#releases-of-workspace-images). Customer
   robots pin a `:<distro>-<version>` or track `:<distro>`.
 - `runtime`, nightly: `:<distro>-nightly` (whatever the last nightly built, for integration
-  robots) and immutable `:<distro>-YYYY-MM-DD`.
-- `dev`: rolling `:<distro>` and immutable `:<distro>-YYYY-MM-DD`. A lean image publishes only
+  robots) and `:<distro>-YYYY-MM-DD`.
+- `dev`: rolling `:<distro>` and `:<distro>-YYYY-MM-DD`. A lean image publishes only
   as `:<distro>-YYYY-MM-DD`, so `:<distro>` stays on the last build whose workspace compiled on
   every architecture.
   A release adds an immutable `:<distro>-<version>`, the development image matching the
   released runtime, and moves `:<distro>` to it until the next nightly.
-- `ci`: `:<distro>-<arch>-<key>`, one architecture each. The nightly keeps the newest 100
-  versions and deletes older ones.
+- `ci`: `:<distro>-<arch>-<key>`, one architecture each.
+
+The nightly deletes what nothing needs any more (`scripts/prune_images.sh`): `ci` images built
+before today, whose key holds an earlier day, and `dev` and `runtime` images older than 7 days
+that carry only `:<distro>-YYYY-MM-DD` tags or none. Release images, the moving `:<distro>` and
+`:<distro>-nightly` tags, and the per-architecture images they point at are kept.
 
 ### What makes up a workspace
 
