@@ -4,10 +4,8 @@ Changelog
 
 1.2.0 (2026-11-05)
 ------------------
+* feat(factory): build multi-arch workspace images on a shared ci layer (#29)
 * feat(factory): release the dev image with the runtime image (#25)
-* feat(factory): share a keyed ci layer between CI, nightly and dev (#26)
-* feat(factory): release the dev image with the runtime image (#25)
-* Revert "feat(factory): share a keyed ci layer between CI, nightly and dev (#26)" (#28)
 
 1.1.0 (2026-11-04)
 ------------------
