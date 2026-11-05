@@ -1,18 +1,15 @@
 # syntax=docker/dockerfile:1
 #
 # Duatic workspace images, multi-stage: the workspace a repository roots (the repository and
-# everything its repos.list collects), on top of the published images of docker/base.Dockerfile:
+# its dependencies), on top of the published images of docker/base.Dockerfile:
 # ros2-base (toolchain, venv, mixins, dependency scripts) and ros2-dev (developer tooling,
 # shell environment, entrypoint).
 #
 # Published targets are ci, dev and runtime, layered so that the expensive part is shared:
-#   ci        ros2-base + every dependency + the upstream repositories compiled. It does not
-#             hold the root repository's sources, so it stays valid for every commit until the
-#             root's dependency manifests or an upstream commit change. build_workspace.sh
-#             publishes it under a key of everything it is built from and reuses it.
-#   workspace ci + the root repository compiled into the same install (internal)
+#   ci        ros2-base + repository dependencies
+#   workspace ci + the repository compiled into the same install (internal)
 #   runtime   workspace + the strict dependency gate
-#   dev       ros2-dev + the dependencies + workspace's install as an underlay
+#   dev       ros2-dev + repository dependencies + workspace's install as an underlay
 #
 # Build args:
 #   ROS2_BASE_IMAGE   public ros2-base image for the distro (fetch, ci)

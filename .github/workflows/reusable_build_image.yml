@@ -8,8 +8,7 @@ name: Build image (reusable)
 # lean fallback).
 #
 # Each architecture builds natively on its own runner and pushes its images by digest; the
-# merge job then tags the digests of every architecture as multi-arch images
-# (scripts/merge_images.sh). A ci image is per architecture: build it for one at a time.
+# merge job then tags the digests of every architecture as multi-arch images.
 
 on:
   workflow_call:
@@ -72,8 +71,7 @@ on:
         value: ${{ jobs.merge.outputs.dev_image }}
 
 jobs:
-  # Resolves the repository set once, so every architecture builds the same commits. A ci image
-  # is built for one architecture and resolves its own.
+  # Resolves the repository set once, so every architecture builds the same commits.
   lock:
     if: ${{ inputs.target != 'ci' }}
     runs-on: ${{ inputs.runner }}
@@ -237,8 +235,7 @@ jobs:
           # A re-run of a failed leg replaces its record.
           overwrite: true
 
-  # Tags every architecture's digests as multi-arch images, each role only when every
-  # architecture built it (scripts/merge_images.sh).
+  # Tags every architecture's digests as multi-arch images (scripts/merge_images.sh).
   merge:
     needs: [lock, build]
     if: ${{ !cancelled() && inputs.publish && inputs.target != 'ci' && needs.lock.result == 'success' }}

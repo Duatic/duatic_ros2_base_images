@@ -20,9 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The base images are rebuilt only when a change reaches them: the files base.Dockerfile
-  # copies in, and the scripts and workflows that build it. Skipped legs count as passed for
-  # required checks; a manual run always builds.
+  # The base images are rebuilt only when a change reaches them.
   changes:
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     outputs:

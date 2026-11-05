@@ -75,18 +75,17 @@ Targets:
           runtime outright here, whether or not dev fell back. Robots never ship
           incomplete. Nightly publishes :<distro>-nightly; :<distro> is reserved for the
           latest release (reusable_release_image.yml).
-  ci      every dependency of the workspace and the upstream repositories compiled (everything
-          its repos.list collects), without the repository itself: CI builds and tests the
-          checkout on top, and dev and runtime compile it in. Lenient: CI and runtime gate on
-          its unresolved dependencies. Built on its own as a target.
+  ci      every dependency of the workspace compiled without the repository itself:
+          CI builds and tests the checkout on top, and dev and runtime compile it in.
+          Lenient: CI and runtime gate on its unresolved dependencies. Built on its own as a
+          target.
 
 The repository set is resolved first: every branch repos.list names, recursively, is pinned to
 its commit (scripts/expand_repos.py). The ci image is keyed on everything it is built from:
 the cachebust day, the factory files it reads, the ros2-base digest, the distro, the
 architecture, the pinned upstream repositories and the checkout's package.xml, Aptfile and
-requirements.txt files. When an
-image with that key is published, every target reuses it instead of building it; a pushed
-build that had to build it publishes it for the next. A release never reuses one.
+requirements.txt files. When an image with that key is published, every target reuses it
+instead of building it. A release never reuses one.
 
 ensure_workspace_build() compiles the checkout on top of ci once per script invocation, at
 /opt/duatic/ws (Dockerfile target `workspace`), into BuildKit's cache only: it is an internal

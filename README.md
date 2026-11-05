@@ -123,7 +123,7 @@ architecture built it, so a robot or developer never pulls a tag that lacks thei
 | --- | --- | --- | --- |
 | `dev` | `ghcr.io/duatic/<name>-dev` | `ros2-dev` + the workspace's dependencies, resolved **leniently**. When the workspace compiled, it also ships that prebuilt install as an underlay at `/opt/duatic/ws/install`, which [dev_workspace](https://github.com/Duatic/dev_workspace) overlays with its `src/`. When it did not, `dev` falls back to a **lean** image without it, so developers are never blocked. `DUATIC_UNDERLAY` records which one you got, and `duatic-doctor` reports it. | Developers, via dev_workspace |
 | `runtime` | `ghcr.io/duatic/<name>` | The compiled workspace on `ros2-base`, at `/opt/duatic/ws` (with a `/ros2_ws` symlink), and the robot entrypoint. An unresolved dependency **fails the build**: robots never ship incomplete. | Robots |
-| `ci` | `ghcr.io/duatic/<name>-ci` | Every dependency of the workspace, resolved **leniently**, and the upstream repositories compiled at `/opt/duatic/ws`, without the repository itself. Private: it contains compiled private upstream code. | [ci-workflows](https://github.com/Duatic/ci-workflows), which builds and tests the repository on top; `dev` and `runtime` |
+| `ci` | `ghcr.io/duatic/<name>-ci` | Every dependency of the workspace, resolved **leniently**, and the upstream repositories compiled at `/opt/duatic/ws`, without the repository itself. | [ci-workflows](https://github.com/Duatic/ci-workflows), which builds and tests the repository on top; `dev` and `runtime` |
 
 The images are layered so that the expensive part is built once and shared:
 

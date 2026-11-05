@@ -1,19 +1,17 @@
 name: Nightly images
 
 # Reusable workflow: nightly build of the calling repository's dev/runtime images, per ROS
-# distro, published to ghcr.io/duatic/<repository without duatic_>/, on top of this repository's
-# ros2-base / ros2-dev images. The calling repository's checkout roots the workspace, so what
-# goes into the image comes from it alone: its packages, repos.list, Aptfiles, requirements files
-# and rosdep keys. See README.md for the architecture (stage graph, strict-vs-lenient dependency
-# gate, dev's lean fallback, and why dev + runtime share one workspace compile via the
-# `build` job below).
+# distro, published to ghcr.io/duatic/<repository without duatic_>, on top of this repository's
+# ros2-base / ros2-dev images. See README.md for the architecture (stage graph,
+# strict-vs-lenient dependency gate, dev's lean fallback, and why dev + runtime share one
+# workspace compile).
 #
 # Each repository runs it on its own schedule, and its badges land on that repository's
 # `image-badges` branch.
 
 # Distros built when the caller gives none.
 env:
-  DEFAULT_DISTROS: "humble,jazzy,kilted,lyrical,rolling"
+  DEFAULT_DISTROS: "jazzy,kilted,lyrical,rolling"
 
 on:
   workflow_call:
@@ -71,8 +69,7 @@ jobs:
           IN_DISTRO: ${{ inputs.ros_distro }}
           DEFAULT_DISTROS: ${{ env.DEFAULT_DISTROS }}
         run: |
-          # Date for image tags (e.g. ghcr.io/duatic/<name>-dev:<distro>-<date>) and the ci key:
-          # the Zurich day, the same one the callers' crons run on.
+          # Date for image tags (e.g. ghcr.io/duatic/<name>-dev:<distro>-<date>) and the ci key.
           echo "image_date=$(TZ=Europe/Zurich date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
           # Split on commas, strip whitespace, drop empties -> a JSON array of distros.
@@ -80,13 +77,12 @@ jobs:
           echo "distros=$distros" >> "$GITHUB_OUTPUT"
           echo "Distros: $distros"
 
-  # Dev + runtime per distro, in ONE job (target: dev,runtime). Both use the shared workspace
-  # (Dockerfile target workspace); build_workspace.sh compiles it once per job and reuses it
-  # for both, instead of compiling it twice across two separate jobs.
-  # Dev's deps are resolved LENIENTLY and it always publishes (a lean one only as :<date>):
-  # DUATIC_UNDERLAY (baked into the image) records whether the workspace actually compiled,
-  # so developers are never blocked even when it didn't. Runtime always requires a successful
-  # workspace build (robots never ship incomplete) and fails the job if it didn't.
+  # Dev + runtime per distro, in one job (target: dev,runtime). Both use the shared workspace
+  # (Dockerfile target workspace); build_workspace.sh compiles it once per job and reuses it.
+  #
+  # Dev's deps are resolved leniently and it always publishes (a lean one only as :<date>):
+  # DUATIC_UNDERLAY (baked into the image) records whether the workspace actually compiled.
+  # Runtime always requires a successful workspace build and fails the job if it didn't.
   build:
     needs: matrix
     if: ${{ needs.matrix.outputs.distros != '[]' }}
@@ -111,32 +107,39 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  # The ci image gets a new version per day, architecture and change to what it is built from,
-  # by CI and by this nightly alike: keep the newest, which covers several days of every distro
-  # and architecture.
+  # Delete the ci images built before today to save on disk space: their key holds an earlier
+  # day, so nothing can reuse them.
   prune-ci:
     name: Prune ci images
     needs: build
     if: ${{ always() && inputs.publish }}
     runs-on: ${{ inputs.runner }}
-    # Housekeeping: a repository without admin on its package, or without one yet, keeps
-    # every version rather than failing the nightly.
     continue-on-error: true
     permissions:
       packages: write
     steps:
-      - id: name
+      - name: Delete ci images from before today
         env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
-        run: echo "package=${REPO#duatic_}-ci" >> "$GITHUB_OUTPUT"
-      - uses: actions/delete-package-versions@v5
-        with:
-          package-name: ${{ steps.name.outputs.package }}
-          package-type: container
-          min-versions-to-keep: 100
+        run: |
+          set -euo pipefail
+          api="${GITHUB_API_URL}/orgs/${OWNER}/packages/container/${REPO#duatic_}-ci/versions"
+          today=$(TZ=Europe/Zurich date -d 'today 00:00' +%s)
+          old=()
+          for ((page = 1; ; page++)); do
+            versions=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" "${api}?per_page=100&page=${page}")
+            [[ $(jq length <<<"$versions") -gt 0 ]] || break
+            mapfile -t -O "${#old[@]}" old < <(jq -r --argjson today "$today" \
+              '.[] | select((.created_at | fromdateiso8601) < $today) | .id' <<<"$versions")
+          done
+          echo "Deleting ${#old[@]} ci image versions from before today."
+          for id in "${old[@]}"; do
+            curl -fsSL -X DELETE -H "Authorization: Bearer ${GH_TOKEN}" "${api}/${id}"
+          done
 
-  # Coalesces every leg's badge artifact into a single commit on the calling repository's
-  # image-badges branch, apart from the badges branch its CI pushes to at the same time.
+  # Coalesces every leg's badge artifact into a single commit on the image-badges branch.
   badges:
     name: Publish status badges
     needs: [matrix, build]
