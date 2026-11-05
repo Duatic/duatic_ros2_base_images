@@ -70,6 +70,7 @@ runs:
       id: build
       shell: bash
       env:
+        # Read by scripts/image_env.sh as FACTORY_REF, the release whose base images to build on.
         # github.action_ref reaches a composite action only through env. It is empty when the
         # factory's own workflows run the action from their checkout; they set FACTORY_REF.
         ACTION_REF: ${{ github.action_ref }}
@@ -88,13 +89,7 @@ runs:
         INNER_JOBS: "1"
       run: |
         set -euo pipefail
-        if [ -z "${FACTORY_REF:-}" ]; then
-          # Called as Duatic/duatic_ros2_docker_images/actions/build-image@<ref>: name the ref the
-          # way job.workflow_ref does, so a release tag selects the base images of that release.
-          FACTORY_REF=$ACTION_REF
-          [[ "$FACTORY_REF" =~ ^v[0-9]+(\.[0-9]+){0,2}$ ]] && FACTORY_REF="refs/tags/${FACTORY_REF}"
-          export FACTORY_REF
-        fi
+        export FACTORY_REF="${FACTORY_REF:-$ACTION_REF}"
         runner_arch=$(docker version --format '{{.Server.Arch}}')
         if [ -n "$IN_ARCH" ] && [ "$runner_arch" != "$IN_ARCH" ]; then
           echo "::error::the ${IN_ARCH} build runs on ${runner_arch}: check the runner inputs"
