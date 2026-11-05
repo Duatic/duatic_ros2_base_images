@@ -33,7 +33,8 @@ Flags:
   --push                 push to ghcr.io (default: only load into the local docker
                          image store). dev and runtime are pushed by digest, untagged;
                          scripts/merge_images.sh tags the digests of every architecture
-                         together. The ci image is pushed under its tag.
+                         together. The ci image is pushed under its tag; --target ci
+                         also loads one it builds, for the next step to run.
   --digests DIR          with --push: where to record this architecture's digests, as
                          DIR/<arch>.env, for merge_images.sh
   --cachebust STR        forces a fresh source clone and a fresh apt-get update/upgrade
@@ -352,6 +353,11 @@ ensure_ci() {
         # version, which the nightly's pruning deletes whole, with no attestation manifests left.
         if $BUILD_CI || $PUSH; then
             output=("${OUTPUT_ARG[@]}" --provenance=false --tag "$CI_REF")
+        fi
+        # A pushed --target ci is run next by its caller (actions/build-image), which then needs
+        # no pull. dev and runtime only build on it, so they do not load it.
+        if $BUILD_CI && $PUSH; then
+            output+=(--load)
         fi
     fi
     echo ">>> Building ci: ${CI_REF}"
