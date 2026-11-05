@@ -1,0 +1,105 @@
+name: Build image
+description: >-
+  Build (and optionally publish) one image target of a checked-out repository for one ROS distro,
+  on this runner's architecture. The build step of reusable_build_image.yml, for a job that uses
+  the image in its next steps.
+
+inputs:
+  source:
+    description: "Checkout of the repository rooting the image, made without persisted credentials (its .git goes into the image's build stages)"
+    required: true
+  ros_distro:
+    description: "ROS distro (humble|jazzy|kilted|lyrical|rolling)"
+    required: true
+  target:
+    description: "Image target(s) to build: dev, runtime, dev,runtime (one shared compile) or ci"
+    default: "runtime"
+  image_date:
+    description: "Shared date tag (YYYY-MM-DD) for this run; blank = today"
+    default: ""
+  publish:
+    description: "Push the built image to ghcr.io (otherwise build/load only)"
+    default: "false"
+  version:
+    description: "Release version (target runtime or dev,runtime), see reusable_build_image.yml"
+    default: ""
+  lock:
+    description: "Directory holding the repository set resolved by build_workspace.sh --resolve-to; empty resolves it here"
+    default: ""
+  digests:
+    description: "Directory to record the pushed digests in, for merge_images.sh; empty records none"
+    default: ""
+  arch:
+    description: "Architecture the runner must have (amd64 or arm64); empty accepts any"
+    default: ""
+  git_auth_token:
+    description: "GitHub token used by vcs import to clone private repositories"
+    default: ${{ github.token }}
+  dockerhub_username:
+    description: "Docker Hub user for authenticated (per-account rate-limited) pulls; anonymous when empty"
+    default: ""
+  dockerhub_token:
+    description: "Docker Hub access token (Public Repo Read-only scope)"
+    default: ""
+
+outputs:
+  image:
+    description: "Reference of the ci image (target ci) or the release image (target runtime with version)"
+    value: ${{ steps.build.outputs.image }}
+
+runs:
+  using: composite
+  steps:
+    - name: Log in to Docker Hub
+      if: ${{ inputs.dockerhub_username != '' }}
+      uses: docker/login-action@v4
+      with:
+        username: ${{ inputs.dockerhub_username }}
+        password: ${{ inputs.dockerhub_token }}
+
+    # Stays logged in for the job's later steps, such as running a published ci image.
+    - name: Log in to GHCR
+      if: ${{ inputs.publish == 'true' }}
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Build ${{ inputs.target }}
+      id: build
+      shell: bash
+      env:
+        # Read by scripts/image_env.sh as FACTORY_REF, the release whose base images to build on.
+        # github.action_ref reaches a composite action only through env. It is empty when the
+        # factory's own workflows run the action from their checkout; they set FACTORY_REF.
+        ACTION_REF: ${{ github.action_ref }}
+        IN_SOURCE: ${{ inputs.source }}
+        IN_ROS_DISTRO: ${{ inputs.ros_distro }}
+        IN_TARGET: ${{ inputs.target }}
+        IN_PUBLISH: ${{ inputs.publish }}
+        IN_VERSION: ${{ inputs.version }}
+        IN_LOCK: ${{ inputs.lock }}
+        IN_DIGESTS: ${{ inputs.digests }}
+        IN_ARCH: ${{ inputs.arch }}
+        # Read by scripts/build_workspace.sh.
+        IMAGE_DATE: ${{ inputs.image_date }}
+        GIT_AUTH_TOKEN: ${{ inputs.git_auth_token }}
+        PARALLEL_WORKERS: "4"
+        INNER_JOBS: "1"
+      run: |
+        set -euo pipefail
+        export FACTORY_REF="${FACTORY_REF:-$ACTION_REF}"
+        runner_arch=$(docker version --format '{{.Server.Arch}}')
+        if [ -n "$IN_ARCH" ] && [ "$runner_arch" != "$IN_ARCH" ]; then
+          echo "::error::the ${IN_ARCH} build runs on ${runner_arch}: check the runner inputs"
+          exit 1
+        fi
+        ARGS=(--source "$IN_SOURCE" --ros-distro "$IN_ROS_DISTRO" --target "$IN_TARGET")
+        [ -z "$IN_LOCK" ] || ARGS+=(--lock "$IN_LOCK")
+        if [ "$IN_PUBLISH" = true ]; then
+          ARGS+=(--push)
+          [ -z "$IN_DIGESTS" ] || ARGS+=(--digests "$IN_DIGESTS")
+        fi
+        [ -z "$IN_VERSION" ] || ARGS+=(--version "$IN_VERSION")
+        "${GITHUB_ACTION_PATH}/../../scripts/build_workspace.sh" "${ARGS[@]}"

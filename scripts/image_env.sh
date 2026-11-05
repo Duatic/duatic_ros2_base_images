@@ -9,8 +9,9 @@
 #                not validated against a fixed list here
 #   IMAGE_DATE   immutable date tag          (default: today in Zurich, YYYY-MM-DD)
 #   FACTORY_REF  the git ref of this repository the factory runs from, as job.workflow_ref
-#                names it (refs/tags/v1, refs/tags/v1.2.3, refs/heads/main, ...); unset for
-#                a local build. Selects the ros2-base / ros2-dev release to build on.
+#                names it (refs/tags/v1, refs/tags/v1.2.3, refs/heads/main, ...) or as
+#                github.action_ref does (v1, main, ...); unset for a local build. Selects the
+#                ros2-base / ros2-dev release to build on.
 #
 # Exports:
 #   SOURCE_REPO      the repository rooting the image, e.g. duatic_dynaarm
@@ -37,7 +38,8 @@ REGISTRY_NS="ghcr.io/duatic"
 #
 # build_base.sh tags every release X.Y.Z as <distro>-X.Y.Z, <distro>-X.Y, <distro>-X and
 # <distro>. The factory and the base images are released together, so a caller pinning the
-# factory to a release tag (vX, vX.Y or vX.Y.Z) gets the base images of that same release.
+# factory to a release tag (vX, vX.Y or vX.Y.Z, with or without refs/tags/) gets the base
+# images of that same release.
 # Any other ref (a branch, a pull request, a commit, or none for a local build) builds on the
 # latest release, with a warning: such a factory may rely on base changes not released yet.
 #
@@ -46,8 +48,8 @@ REGISTRY_NS="ghcr.io/duatic"
 # Prints the tag, e.g. jazzy-1.2.3; returns non-zero for a tag that is not a release.
 image_env_base_tag() {
     local ref="$1" distro="$2"
-    if [[ "$ref" =~ ^refs/tags/v([0-9]+(\.[0-9]+){0,2})$ ]]; then
-        echo "${distro}-${BASH_REMATCH[1]}"
+    if [[ "$ref" =~ ^(refs/tags/)?v([0-9]+(\.[0-9]+){0,2})$ ]]; then
+        echo "${distro}-${BASH_REMATCH[2]}"
     elif [[ "$ref" == refs/tags/* ]]; then
         echo "Error: factory tag ${ref#refs/tags/} is not a release (vX, vX.Y or vX.Y.Z)." >&2
         return 1
