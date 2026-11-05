@@ -156,11 +156,11 @@ jobs:
           today=$(TZ=Europe/Zurich date -d 'today 00:00' +%s)
           week=$(date -d '7 days ago' +%s)
           status=0
-          ./factory/scripts/prune_images.sh --package "${name}-ci" --before "$today" \
-            --deletable-tags '.*' || status=1
+          ./factory/scripts/prune_images.sh --package "${name}-ci" --before "$today" --any-tag \
+            || status=1
           for package in "$name" "${name}-dev"; do
-            ./factory/scripts/prune_images.sh --package "$package" --before "$week" \
-              --deletable-tags '^[a-z]+-[0-9]{4}-[0-9]{2}-[0-9]{2}$' || status=1
+            ./factory/scripts/prune_images.sh --package "$package" --before "$week" --nightly \
+              || status=1
           done
           exit "$status"
 
