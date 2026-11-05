@@ -2,6 +2,11 @@
 Changelog
 ^^^^^^^^^
 
+1.3.0 (2026-11-05)
+------------------
+* feat(factory): prune nightly dev and runtime images after 7 days (#32)
+* feat(factory): offer the image build as a composite action (#31)
+
 1.2.0 (2026-11-05)
 ------------------
 * feat(factory): build multi-arch workspace images on a shared ci layer (#29)
