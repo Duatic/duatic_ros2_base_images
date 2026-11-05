@@ -222,9 +222,9 @@ Every workspace image workflow is `workflow_call` and builds the image of the re
 They log in to Docker Hub first when the optional `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`
 secrets are set, so `docker.io` pulls are rate-limited per account instead of per IP.
 
-- [`nightly.yml`](.github/workflows/nightly.yml): dev and runtime per distro, in one job per
-  distro. With `publish`, it also commits `<distro>-dev.svg` and `<distro>-runtime.svg` status
-  badges to the caller's `image-badges` branch.
+- [`reusable_nightly_image.yml`](.github/workflows/reusable_nightly_image.yml): dev and
+  runtime per distro, in one job per distro. With `publish`, it also commits `<distro>-dev.svg`
+  and `<distro>-runtime.svg` status badges to the caller's `image-badges` branch.
 
   ```yaml
   jobs:
@@ -232,19 +232,19 @@ secrets are set, so `docker.io` pulls are rate-limited per account instead of pe
       permissions:
         contents: write   # image-badges branch
         packages: write
-      uses: Duatic/duatic_ros2_base_images/.github/workflows/nightly.yml@v1
+      uses: Duatic/duatic_ros2_base_images/.github/workflows/reusable_nightly_image.yml@v1
       with:
         publish: ${{ github.event_name == 'schedule' || inputs.publish }}
         # architectures: '["amd64","arm64"]'   (the default)
         # runner_arm64: ubuntu-24.04-arm        (the default)
       secrets: inherit
   ```
-- [`build-image.yml`](.github/workflows/build-image.yml): one `target` (`dev`, `runtime`,
-  `dev,runtime` for both sharing one compile, or `ci` for one architecture) for one distro. It returns the ci image
-  (`target: ci`) or the release image (a `version`) as its `image` output, and with
-  `dev,runtime` the release dev image as `dev_image`. Private repositories need the `GH_PAT`
-  secret.
-- [`release-image.yml`](.github/workflows/release-image.yml): see
+- [`reusable_build_image.yml`](.github/workflows/reusable_build_image.yml): one `target`
+  (`dev`, `runtime`, `dev,runtime` for both sharing one compile, or `ci` for one architecture)
+  for one distro. It returns the ci image (`target: ci`) or the release image (a `version`) as
+  its `image` output, and with `dev,runtime` the release dev image as `dev_image`. Private
+  repositories need the `GH_PAT` secret.
+- [`reusable_release_image.yml`](.github/workflows/reusable_release_image.yml): see
   [Releases of workspace images](#releases-of-workspace-images).
 
 Every workflow takes `architectures` (a JSON list, default `'["amd64","arm64"]'`), `runner`
@@ -262,16 +262,16 @@ workflow, since GitHub bills hosted runner minutes for private repositories.
 
 ### Releases of workspace images
 
-`release-image.yml` (inputs `ros_distro`, `version`) builds `runtime` and `dev` through
-`build-image.yml` from the revision the calling repository runs on, from scratch: it pins the
-upstream repositories anew and never reuses a published `ci` image. It refuses to
-run if `<name>:<distro>-<version>` or `<name>-dev:<distro>-<version>` already exists, builds
-`dev` only once `runtime` passed its strict gate, and tags both multi-arch images and moves
-their `:<distro>` only when every architecture built both: a failed leg leaves the version
-unused. It then tags the caller `release/<distro>/<version>` and attaches `sources.lock.repos` and
-a snapshot of what got installed in `runtime` (`dpkg -l`, `pip freeze`, `ros2 pkg list`), taken
-on the `runner` architecture, to a GitHub Release on that tag. A repository dispatches it by hand: a
-release is a deliberate act, separate from the nightly.
+`reusable_release_image.yml` (inputs `ros_distro`, `version`) builds `runtime` and `dev` through
+`reusable_build_image.yml` from the revision the calling repository runs on, from scratch: it pins
+the upstream repositories anew and never reuses a published `ci` image. It refuses to run if
+`<name>:<distro>-<version>` or `<name>-dev:<distro>-<version>` already exists, builds `dev` only
+once `runtime` passed its strict gate, and tags both multi-arch images and moves their `:<distro>`
+only when every architecture built both: a failed leg leaves the version unused. It then tags the
+caller `release/<distro>/<version>` and attaches `sources.lock.repos` and a snapshot of what got
+installed in `runtime` (`dpkg -l`, `pip freeze`, `ros2 pkg list`), taken on the `runner`
+architecture, to a GitHub Release on that tag. A repository dispatches it by hand: a release is a
+deliberate act, separate from the nightly.
 
 ### Self-hosted runners
 

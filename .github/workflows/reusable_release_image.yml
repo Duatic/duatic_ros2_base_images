@@ -17,10 +17,10 @@ name: Release images
 #   - a GitHub Release on that tag carrying the exact source pin (sources.lock.repos) and a
 #     snapshot of what's actually installed (packages.txt, pip-freeze.txt, ros2-pkg-list.txt)
 #
-# Each image is a multi-arch index over `architectures`. The images are built by build-image.yml,
-# like every other image, from one compile of the workspace per architecture, and tagged only
-# when every architecture built both: a failed leg leaves the version unused. The release job
-# only reads the pushed runtime image back from the registry.
+# Each image is a multi-arch index over `architectures`. The images are built by
+# reusable_build_image.yml, like every other image, from one compile of the workspace per
+# architecture, and tagged only when every architecture built both: a failed leg leaves the
+# version unused. The release job only reads the pushed runtime image back from the registry.
 #
 # Reproducing this exact build later (e.g. to rebuild on a patched base image without
 # touching the repository's source): take /etc/duatic/sources.lock.repos from the image (or the
@@ -62,7 +62,7 @@ on:
       DOCKERHUB_TOKEN:
         required: false
 
-# Shares nightly.yml's group so the two never race. Never cancelled: it pushes
+# Shares reusable_nightly_image.yml's group so the two never race. Never cancelled: it pushes
 # immutable :<distro>-<version> tags and moves :<distro>.
 concurrency:
   group: duatic-image-publish
@@ -73,7 +73,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: ./.github/workflows/build-image.yml
+    uses: ./.github/workflows/reusable_build_image.yml
     with:
       ros_distro: ${{ inputs.ros_distro }}
       target: dev,runtime

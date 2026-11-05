@@ -43,7 +43,7 @@ Flags:
                          :<distro>-VERSION instead of the nightly tags and moves its
                          :<distro> to it, refuses to build if a VERSION tag already exists
                          (release tags are immutable), and builds dev only once runtime
-                         passed. Used by release-image.yml.
+                         passed. Used by reusable_release_image.yml.
   --sources-lock FILE    rebuild from the sources.lock.repos of an earlier image instead of
                          the branches repos.list names; --source must be the root at the
                          commit FILE names
@@ -74,7 +74,7 @@ Targets:
           resolved deps leniently, so a non-empty /etc/duatic/unresolved-rosdep.txt fails
           runtime outright here, whether or not dev fell back. Robots never ship
           incomplete. Nightly publishes :<distro>-nightly; :<distro> is reserved for the
-          latest release (release-image.yml).
+          latest release (reusable_release_image.yml).
   ci      every dependency of the workspace and the upstream repositories compiled (everything
           its repos.list collects), without the repository itself: CI builds and tests the
           checkout on top, and dev and runtime compile it in. Lenient: CI and runtime gate on
@@ -97,9 +97,9 @@ first call does the work and the second reuses the cached stage, so `--target de
 Tags produced per target, e.g. for duatic_dynaarm on jazzy (scripts/image_env.sh,
 image_env_tags; each a multi-arch index):
   runtime:  dynaarm:jazzy-nightly     and  dynaarm:jazzy-<IMAGE_DATE>      (nightly)
-            dynaarm:jazzy-<VERSION>   and moves dynaarm:jazzy             (release-image.yml only)
+            dynaarm:jazzy-<VERSION>   and moves dynaarm:jazzy             (release only)
   dev:      dynaarm-dev:jazzy         and  dynaarm-dev:jazzy-<IMAGE_DATE>  (nightly)
-            dynaarm-dev:jazzy-<VERSION> and  dynaarm-dev:jazzy             (release-image.yml only)
+            dynaarm-dev:jazzy-<VERSION> and  dynaarm-dev:jazzy             (release only)
   ci:       dynaarm-ci:jazzy-<arch>-<key>    (one architecture per tag)
 EOF
 }
@@ -480,8 +480,8 @@ build_dev() {
 #
 # Nightly publishes :<distro>-nightly and :<distro>-<date>. A robot pulling :<distro>-nightly
 # knows it's whatever main happened to build most recently, no vetting; the bare :<distro> is
-# reserved for release-image.yml's deliberately promoted, immutable :<distro>-<version> tags
-# (customer robots).
+# reserved for reusable_release_image.yml's deliberately promoted, immutable
+# :<distro>-<version> tags (customer robots).
 build_runtime() {
     ensure_workspace_build
 

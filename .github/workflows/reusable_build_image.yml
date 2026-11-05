@@ -1,10 +1,11 @@
 name: Build image (reusable)
 
 # Reusable workflow: build (and optionally publish) one image target of the calling repository
-# for a single ROS distro: dev, runtime (with a version, what release-image.yml uses),
-# dev,runtime (both sharing one compile, what nightly.yml uses), or ci (the repository's
-# workspace without the repository, which ci-workflows builds and tests on). See README.md for the architecture (stage graph, strict-vs-lenient dependency gate,
-# dev's lean fallback).
+# for a single ROS distro: dev, runtime (with a version, what reusable_release_image.yml
+# uses), dev,runtime (both sharing one compile, what reusable_nightly_image.yml uses), or ci
+# (the repository's workspace without the repository, which ci-workflows builds and tests on).
+# See README.md for the architecture (stage graph, strict-vs-lenient dependency gate, dev's
+# lean fallback).
 #
 # Each architecture builds natively on its own runner and pushes its images by digest; the
 # merge job then tags the digests of every architecture as multi-arch images
