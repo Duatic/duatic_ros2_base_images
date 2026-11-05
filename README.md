@@ -246,6 +246,11 @@ secrets are set, so `docker.io` pulls are rate-limited per account instead of pe
   repositories need the `GH_PAT` secret.
 - [`reusable_release_image.yml`](.github/workflows/reusable_release_image.yml): see
   [Releases of workspace images](#releases-of-workspace-images).
+- [`actions/build-image`](actions/build-image/action.yml): the build step of
+  `reusable_build_image.yml` as a composite action, for a job that uses the image in its next
+  steps. ci-workflows' `reusable_ci.yml` builds the ci image and tests on it in one job this
+  way. Called at a release (`@v1`), it builds on the base images of that release, like the
+  workflows.
 
 Every workflow takes `architectures` (a JSON list, default `'["amd64","arm64"]'`), `runner`
 (the amd64 builds and every other job, default `ubuntu-latest`) and `runner_arm64` (default
