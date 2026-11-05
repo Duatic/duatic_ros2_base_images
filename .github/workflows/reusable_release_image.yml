@@ -119,7 +119,7 @@ jobs:
           packages.txt, pip-freeze.txt and ros2-pkg-list.txt below describe the $(uname -m) image.
           Reproduce this exact build from a checkout of \`${TAG}\` with
           \`build_workspace.sh --source <checkout> --sources-lock sources.lock.repos\`
-          (see https://github.com/Duatic/duatic_ros2_base_images#every-image-knows-what-it-is-made-of).
+          (see https://github.com/Duatic/duatic_ros2_docker_images#every-image-knows-what-it-is-made-of).
           EOF
 
       - name: Create GitHub Release

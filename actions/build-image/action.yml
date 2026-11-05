@@ -89,7 +89,7 @@ runs:
       run: |
         set -euo pipefail
         if [ -z "${FACTORY_REF:-}" ]; then
-          # Called as Duatic/duatic_ros2_base_images/actions/build-image@<ref>: name the ref the
+          # Called as Duatic/duatic_ros2_docker_images/actions/build-image@<ref>: name the ref the
           # way job.workflow_ref does, so a release tag selects the base images of that release.
           FACTORY_REF=$ACTION_REF
           [[ "$FACTORY_REF" =~ ^v[0-9]+(\.[0-9]+){0,2}$ ]] && FACTORY_REF="refs/tags/${FACTORY_REF}"

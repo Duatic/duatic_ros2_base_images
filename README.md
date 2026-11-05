@@ -1,4 +1,4 @@
-# duatic_ros2_base_images
+# duatic_ros2_docker_images
 
 Opinionated ROS 2 Docker images for robot software development, and the image factory that
 builds the Duatic images of every repository that calls it on top of them.
@@ -232,7 +232,7 @@ secrets are set, so `docker.io` pulls are rate-limited per account instead of pe
       permissions:
         contents: write   # image-badges branch
         packages: write
-      uses: Duatic/duatic_ros2_base_images/.github/workflows/reusable_nightly_image.yml@v1
+      uses: Duatic/duatic_ros2_docker_images/.github/workflows/reusable_nightly_image.yml@v1
       with:
         publish: ${{ github.event_name == 'schedule' || inputs.publish }}
         # architectures: '["amd64","arm64"]'   (the default)
