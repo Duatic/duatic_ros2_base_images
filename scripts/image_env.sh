@@ -31,6 +31,7 @@
 #   image_env_resolve <repository> <distro>   export the vars above for one cell
 #   image_env_tags <role> <version> <complete>  the tags a runtime or dev image gets
 #   image_env_release_free <version> <with dev>  whether a release version is still unused
+#   image_env_nightly_tag_regex               the pattern of the dated nightly tags
 
 REGISTRY_NS="ghcr.io/duatic"
 
@@ -107,6 +108,13 @@ image_env_tags() {
     elif [[ "$complete" == true ]]; then
         echo "$ROS_DISTRO"
     fi
+}
+
+# Print the pattern (an extended regular expression, as jq's test() takes it) of the dated
+# nightly tag image_env_tags gives, :<distro>-<IMAGE_DATE>: the only tag the nightly's pruning
+# lets go of after a week (scripts/prune_images.sh).
+image_env_nightly_tag_regex() {
+    echo '^[a-z]+-[0-9]{4}-[0-9]{2}-[0-9]{2}$'
 }
 
 # Check that a release version is still free: release tags are immutable.
