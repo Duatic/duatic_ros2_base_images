@@ -2,6 +2,10 @@
 Changelog
 ^^^^^^^^^
 
+1.3.1 (2026-11-06)
+------------------
+* fix(factory): key ci images on file content (#34)
+
 1.3.0 (2026-11-05)
 ------------------
 * feat(factory): prune nightly dev and runtime images after 7 days (#32)
