@@ -312,15 +312,11 @@ resolve_lock() {
 
 # Print the ci key: a digest of everything the ci image is built from (see --help).
 ci_key() {
-    # The factory files the ci stage reads, so a commit elsewhere (docs, workflows) keeps the key.
-    local paths=(docker scripts config) factory base
-    factory=$(git -C "$REPO_ROOT" rev-parse "${paths[@]/#/HEAD:}" 2>/dev/null) ||
-        factory="unversioned $(date +%s%N)"
-    # Uncommitted changes to them key on their content, so a local edit never reuses an image.
-    if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -- "${paths[@]}" 2>/dev/null)" ]]; then
-        factory+=" $({ git -C "$REPO_ROOT" status --porcelain -- "${paths[@]}"
-            git -C "$REPO_ROOT" diff HEAD -- "${paths[@]}"; } | sha256sum)"
-    fi
+    # The content of the factory files the ci stage reads, so a checkout and a downloaded action
+    # (no .git) of the same revision share the key. buildkitd.toml is setup_cache's per-runner render.
+    local factory base
+    factory=$(cd "$REPO_ROOT" && find docker scripts config -type f ! -path docker/buildkitd.toml -print0 |
+        LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum)
     base=$(docker buildx imagetools inspect "$ROS2_BASE_IMAGE" --format '{{.Manifest.Digest}}')
     {
         printf '%s\n' "cachebust ${CACHEBUST}" "factory ${factory}" "base ${base}" \
